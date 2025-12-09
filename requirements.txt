@@ -1,0 +1,12 @@
+# YouTube API dependencies
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+
+# Configuration management
+python-dotenv
+
+# Testing
+pytest
+pytest-cov
+pytest-mock
