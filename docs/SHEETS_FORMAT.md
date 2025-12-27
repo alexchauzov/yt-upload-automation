@@ -6,6 +6,8 @@ This document describes the required format for Google Sheets used as metadata s
 
 The Google Sheet should contain video metadata with one video per row. The first row (header) defines column names.
 
+> **Важно:** Порядок колонок не важен. Важно, чтобы первая строка содержала заголовки с указанными именами (регистр не важен, пробелы по краям игнорируются). Система автоматически определяет позиции колонок по их названиям.
+
 ### Required Columns
 
 | Column Name | Type | Required | Description | Example |
@@ -74,6 +76,38 @@ The following validation rules are enforced when reading tasks:
 | vid_001 | READY | Python Tutorial | /videos/tutorial.mp4 | Learn Python basics | python,tutorial | 2025-12-20T10:00:00Z | unlisted |
 | vid_002 | SCHEDULED | Advanced Tips | /videos/advanced.mp4 | Advanced techniques | python,advanced | 2025-12-21T14:00:00Z | public |
 | vid_003 | FAILED | Old Video | /videos/old.mp4 | | | | private |
+
+### Пример с переставленными колонками
+
+Колонки могут располагаться в любом порядке — система определит их по названиям:
+
+| status | video_file_path | title | task_id | tags |
+|--------|----------------|-------|---------|------|
+| READY | /videos/tutorial.mp4 | Python Tutorial | vid_001 | python,tutorial |
+
+## Column Order Flexibility
+
+Система поддерживает гибкий порядок колонок:
+
+- **Порядок колонок не важен** — колонки могут располагаться в любом порядке
+- **Названия определяют колонки** — первая строка должна содержать названия колонок
+- **Регистр не важен** — `task_id`, `Task_ID`, `TASK_ID` эквивалентны
+- **Пробелы игнорируются** — ` task_id ` считается как `task_id`
+
+### Обязательные колонки
+
+При использовании header-based маппинга обязательно наличие колонок:
+- `task_id`
+- `status`
+- `title`
+- `video_file_path`
+
+Если любая из этих колонок отсутствует в header, система выдаст ошибку с перечислением недостающих колонок.
+
+### Обратная совместимость
+
+Если первая строка не содержит ни одного известного названия колонки, система использует фиксированный порядок (как в старых версиях):
+1. task_id, 2. status, 3. title, 4. video_file_path, и т.д.
 
 ## Configuration
 

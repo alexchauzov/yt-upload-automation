@@ -26,9 +26,10 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
     Google Sheets implementation of MetadataRepository.
 
     Uses Google Sheets API v4 with service account authentication.
+    Column order is flexible - the first row should contain header names.
     """
 
-    # Column mapping (0-indexed)
+    # Column mapping (0-indexed) - fallback when header is missing/invalid
     COLUMN_MAP = {
         "task_id": 0,
         "status": 1,
@@ -47,6 +48,17 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         "created_at": 14,
         "updated_at": 15,
     }
+
+    # Expected header names (normalized: strip + lowercase)
+    EXPECTED_HEADERS = {
+        "task_id", "status", "title", "video_file_path", "description", "tags",
+        "category_id", "thumbnail_path", "publish_at", "privacy_status",
+        "youtube_video_id", "error_message", "attempts", "last_attempt_at",
+        "created_at", "updated_at",
+    }
+
+    # Required columns when using header-based mapping
+    REQUIRED_COLUMNS = {"task_id", "status", "title", "video_file_path"}
 
     def __init__(
         self,
@@ -106,7 +118,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             List of VideoTask objects.
 
         Raises:
-            MetadataRepositoryError: If fetching fails.
+            MetadataRepositoryError: If fetching fails or required columns missing.
         """
         try:
             logger.info(f"Fetching tasks with status={self.ready_status}")
@@ -129,21 +141,34 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             header = rows[0]
             data_rows = rows[1:]
 
+            # Build header_map from first row (normalized: strip + lowercase)
+            header_map = self._build_header_map(header)
+
+            # Determine padding length based on header_map or COLUMN_MAP
+            if header_map is not None:
+                pad_length = max(header_map.values()) + 1 if header_map else 0
+            else:
+                pad_length = len(self.COLUMN_MAP)
+
             logger.debug(f"Found {len(data_rows)} data rows (excluding header)")
 
             tasks = []
             for row_index, row in enumerate(data_rows, start=2):  # Start at 2 (1 is header)
                 try:
                     # Pad row to expected length
-                    padded_row = row + [""] * (len(self.COLUMN_MAP) - len(row))
+                    current_len = len(row)
+                    if current_len < pad_length:
+                        padded_row = row + [""] * (pad_length - current_len)
+                    else:
+                        padded_row = row
 
                     # Check if row has ready status
-                    status = self._get_cell(padded_row, "status")
+                    status = self._get_cell(padded_row, "status", header_map=header_map)
                     if status != self.ready_status:
                         continue
 
                     # Parse row into VideoTask
-                    task = self._parse_row(padded_row, row_index)
+                    task = self._parse_row(padded_row, row_index, header_map=header_map)
                     tasks.append(task)
 
                 except ValidationError as e:
@@ -159,8 +184,52 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
         except HttpError as e:
             raise MetadataRepositoryError(f"Google Sheets API error: {e}") from e
+        except MetadataRepositoryError:
+            raise
         except Exception as e:
             raise MetadataRepositoryError(f"Failed to fetch tasks: {e}") from e
+
+    def _build_header_map(self, header: List[str]) -> dict[str, int] | None:
+        """
+        Build header_map from header row.
+
+        Args:
+            header: First row of the sheet (header names).
+
+        Returns:
+            Dict mapping normalized column names to indices, or None if header invalid.
+
+        Raises:
+            MetadataRepositoryError: If header is valid but missing required columns.
+        """
+        if not header:
+            logger.debug("Header is empty, using COLUMN_MAP fallback")
+            return None
+
+        # Build header_map with normalized names (strip + lowercase)
+        header_map: dict[str, int] = {}
+        for idx, cell in enumerate(header):
+            normalized = cell.strip().lower()
+            if normalized:
+                header_map[normalized] = idx
+
+        # Check if header contains at least one expected column name
+        found_expected = header_map.keys() & self.EXPECTED_HEADERS
+        if not found_expected:
+            logger.debug("Header does not contain any expected columns, using COLUMN_MAP fallback")
+            return None
+
+        logger.debug(f"Using header-based mapping, found columns: {sorted(found_expected)}")
+
+        # Validate required columns are present
+        missing_required = self.REQUIRED_COLUMNS - header_map.keys()
+        if missing_required:
+            found_cols = sorted(header_map.keys() & self.EXPECTED_HEADERS)
+            raise MetadataRepositoryError(
+                f"Missing required columns: {sorted(missing_required)}; found columns: {found_cols}"
+            )
+
+        return header_map
 
     def update_task_status(
         self,
@@ -278,13 +347,19 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         except Exception as e:
             raise MetadataRepositoryError(f"Increment failed: {e}") from e
 
-    def _parse_row(self, row: List[str], row_index: int) -> VideoTask:
+    def _parse_row(
+        self,
+        row: List[str],
+        row_index: int,
+        header_map: dict[str, int] | None = None,
+    ) -> VideoTask:
         """
         Parse spreadsheet row into VideoTask.
 
         Args:
             row: Row data.
             row_index: Row number in sheet (1-indexed).
+            header_map: Optional dict mapping normalized column names to indices.
 
         Returns:
             VideoTask object.
@@ -293,10 +368,10 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             ValidationError: If validation fails.
         """
         # Required fields
-        task_id = self._get_cell(row, "task_id")
-        title = self._get_cell(row, "title")
-        video_file_path = self._get_cell(row, "video_file_path")
-        status = self._get_cell(row, "status")
+        task_id = self._get_cell(row, "task_id", header_map=header_map)
+        title = self._get_cell(row, "title", header_map=header_map)
+        video_file_path = self._get_cell(row, "video_file_path", header_map=header_map)
+        status = self._get_cell(row, "status", header_map=header_map)
 
         # Validate required fields
         if not task_id:
@@ -313,23 +388,27 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             raise ValidationError(f"title exceeds 100 characters: {len(title)}")
 
         # Optional fields
-        description = self._get_cell(row, "description", default="")
+        description = self._get_cell(row, "description", default="", header_map=header_map)
         if len(description) > 5000:
             raise ValidationError(f"description exceeds 5000 characters: {len(description)}")
 
-        tags_str = self._get_cell(row, "tags", default="")
+        tags_str = self._get_cell(row, "tags", default="", header_map=header_map)
         tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
         if len(tags_str) > 500:
             raise ValidationError(f"tags exceed 500 characters: {len(tags_str)}")
 
-        category_id = self._get_cell(row, "category_id", default="22")
-        thumbnail_path = self._get_cell(row, "thumbnail_path", default=None)
+        category_id = self._get_cell(row, "category_id", default="22", header_map=header_map)
+        thumbnail_path = self._get_cell(row, "thumbnail_path", default=None, header_map=header_map)
 
         # Parse datetime fields
-        publish_at = self._parse_datetime(self._get_cell(row, "publish_at", default=None))
+        publish_at = self._parse_datetime(
+            self._get_cell(row, "publish_at", default=None, header_map=header_map)
+        )
 
         # Parse privacy status
-        privacy_status_str = self._get_cell(row, "privacy_status", default="private")
+        privacy_status_str = self._get_cell(
+            row, "privacy_status", default="private", header_map=header_map
+        )
         try:
             privacy_status = PrivacyStatus(privacy_status_str)
         except ValueError:
@@ -345,16 +424,26 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             raise ValidationError(f"Invalid status: {status}")
 
         # Metadata fields
-        youtube_video_id = self._get_cell(row, "youtube_video_id", default=None)
-        error_message = self._get_cell(row, "error_message", default=None)
+        youtube_video_id = self._get_cell(
+            row, "youtube_video_id", default=None, header_map=header_map
+        )
+        error_message = self._get_cell(row, "error_message", default=None, header_map=header_map)
 
-        attempts = self._parse_int(self._get_cell(row, "attempts", default="0"))
+        attempts = self._parse_int(
+            self._get_cell(row, "attempts", default="0", header_map=header_map)
+        )
         if attempts < 0:
             raise ValidationError(f"attempts must be non-negative: {attempts}")
 
-        last_attempt_at = self._parse_datetime(self._get_cell(row, "last_attempt_at", default=None))
-        created_at = self._parse_datetime(self._get_cell(row, "created_at", default=None))
-        updated_at = self._parse_datetime(self._get_cell(row, "updated_at", default=None))
+        last_attempt_at = self._parse_datetime(
+            self._get_cell(row, "last_attempt_at", default=None, header_map=header_map)
+        )
+        created_at = self._parse_datetime(
+            self._get_cell(row, "created_at", default=None, header_map=header_map)
+        )
+        updated_at = self._parse_datetime(
+            self._get_cell(row, "updated_at", default=None, header_map=header_map)
+        )
 
         return VideoTask(
             task_id=task_id,
@@ -376,9 +465,37 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             updated_at=updated_at,
         )
 
-    def _get_cell(self, row: List[str], column_name: str, default: Any = "") -> str:
-        """Get cell value by column name."""
-        index = self.COLUMN_MAP.get(column_name)
+    def _get_cell(
+        self,
+        row: List[str],
+        column_name: str,
+        default: Any = "",
+        header_map: dict[str, int] | None = None,
+    ) -> str:
+        """
+        Get cell value by column name.
+
+        Args:
+            row: Row data.
+            column_name: Column name to look up.
+            default: Default value if cell is empty or column not found.
+            header_map: Optional dict mapping normalized column names to indices.
+                        If provided and column_name found, uses header_map index.
+                        Otherwise falls back to COLUMN_MAP.
+
+        Returns:
+            Cell value as string (stripped).
+        """
+        # Normalize column name for lookup
+        normalized_name = column_name.strip().lower()
+
+        # Try header_map first if provided
+        if header_map is not None and normalized_name in header_map:
+            index = header_map[normalized_name]
+        else:
+            # Fallback to COLUMN_MAP
+            index = self.COLUMN_MAP.get(column_name)
+
         if index is None:
             return default
         if index >= len(row):
