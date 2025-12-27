@@ -1,36 +1,54 @@
-# YouTube Upload Automation
+# YouTube Publisher
 
-Консольный инструмент для автоматизации загрузки видео на YouTube.
+Автоматизированная публикация видео на YouTube по расписанию из Google Sheets.
 
 ## Архитектура
 
-Проект построен на принципах **чистой архитектуры** с разделением на слои:
-
-- **`src/core/`** — доменная логика, независимая от внешних API
-- **`src/adapters/`** — адаптеры для работы с внешними сервисами (YouTube API)
-- **`src/cli/`** — точки входа командной строки
-
-Подробное описание архитектуры см. в [docs/architecture.md](docs/architecture.md)
-
-## Структура проекта
+Проект построен на принципах **Clean Architecture** с чёткими границами между слоями:
 
 ```
 yt-upload-automation/
-├── src/
-│   ├── core/           # Доменная логика
-│   ├── adapters/       # Внешние API
-│   └── cli/            # CLI интерфейс
-├── tests/
-│   ├── unit/           # Юнит-тесты
-│   └── integration/    # Интеграционные тесты
-├── docs/               # Документация
-└── requirements.txt    # Зависимости
+├── domain/          # Бизнес-логика (models, services)
+├── ports/           # Интерфейсы для внешних зависимостей
+├── adapters/        # Реализации портов (Google Sheets, YouTube API, Storage)
+├── app/             # CLI приложение и wiring
+└── tests/           # Тесты
+    ├── unit/        # Юнит-тесты с моками
+    └── integration/ # Интеграционные тесты
 ```
+
+**Ключевые принципы:**
+- Domain не зависит от внешних сервисов
+- Легко тестируемая логика с использованием моков
+- Легко заменяемые адаптеры (например, заменить Google Sheets на Database)
+
+## Возможности
+
+- Чтение задач публикации из Google Sheets
+- Валидация метаданных и файлов
+- Загрузка видео на YouTube с метаданными (title, description, tags, thumbnail)
+- **Отложенная публикация** (scheduled publishing) - указываете время в Sheets
+- Автоматические ретраи при временных ошибках (rate limits, network errors)
+- Идемпотентность - повторный запуск не создаст дубликаты
+- Dry-run режим - проверка без реальной загрузки
+- Структурированное логирование
+- Обновление статусов в Google Sheets в реальном времени
+
+## Требования
+
+- Python 3.11+
+- Google Cloud Project с включёнными API:
+  - Google Sheets API v4
+  - YouTube Data API v3
+- Service Account для Google Sheets
+- OAuth2 credentials для YouTube
 
 ## Установка
 
+### 1. Клонирование и создание окружения
+
 ```bash
-# Создание виртуального окружения
+# Создайте виртуальное окружение
 python -m venv .venv
 
 # Активация (Windows)
@@ -39,177 +57,279 @@ python -m venv .venv
 # Активация (Linux/Mac)
 source .venv/bin/activate
 
-# Установка зависимостей
+# Установите зависимости
 pip install -r requirements.txt
 ```
 
-## Конфигурация
+### 2. Настройка Google Cloud
 
-Проект использует переменные окружения для конфигурации. Настройка выполняется через файл `.env` в корне проекта.
+#### 2.1. Создайте проект в Google Cloud Console
 
-### Шаги настройки:
+1. Перейдите на https://console.cloud.google.com/
+2. Создайте новый проект или выберите существующий
 
-1. **Скопируйте example-файл:**
-   ```bash
-   cp .env.example .env
-   ```
+#### 2.2. Включите необходимые API
 
-2. **Получите credentials от Google:**
-   - Перейдите в [Google Cloud Console](https://console.cloud.google.com/)
-   - Создайте проект (или выберите существующий)
-   - Включите YouTube Data API v3
-   - Создайте OAuth 2.0 Client ID (тип: Desktop application)
-   - Скачайте JSON-файл с credentials
-   - Сохраните его как `credentials.json` в корне проекта
+1. Перейдите в **APIs & Services > Library**
+2. Найдите и включите:
+   - **Google Sheets API**
+   - **YouTube Data API v3**
 
-3. **Настройте переменные окружения в `.env`:**
+#### 2.3. Создайте Service Account для Google Sheets
 
-   Файл `.env` поддерживает следующие параметры:
+1. Перейдите в **IAM & Admin > Service Accounts**
+2. Нажмите **Create Service Account**
+3. Укажите имя (например, `youtube-publisher-sheets`)
+4. Нажмите **Create and Continue**
+5. Нажмите **Done** (роли не требуются)
+6. Нажмите на созданный Service Account
+7. Перейдите на вкладку **Keys**
+8. Нажмите **Add Key > Create new key**
+9. Выберите тип **JSON**
+10. Скачайте файл и сохраните как `service_account.json` в корне проекта
 
-   - `YT_SCOPES` — OAuth scopes для YouTube API
-     По умолчанию: `https://www.googleapis.com/auth/youtube.upload`
-     Можно указать несколько через запятую или пробел
+**Важно:** Скопируйте email service account (например, `youtube-publisher-sheets@project-id.iam.gserviceaccount.com`)
 
-   - `YT_CREDENTIALS_FILE` — путь к файлу credentials.json
-     По умолчанию: `credentials.json`
+#### 2.4. Создайте OAuth2 Client для YouTube
 
-   - `YT_TOKEN_FILE` — путь для хранения OAuth токена
-     По умолчанию: `token.json` (создаётся автоматически после первой аутентификации)
+1. Перейдите в **APIs & Services > Credentials**
+2. Нажмите **Create Credentials > OAuth client ID**
+3. Если требуется, настройте OAuth consent screen:
+   - User Type: **External**
+   - App name: `YouTube Publisher`
+   - User support email: ваш email
+   - Developer contact: ваш email
+   - Scopes: добавьте `../auth/youtube.upload` и `../auth/youtube`
+   - Test users: добавьте свой Google аккаунт
+4. Application type: **Desktop app**
+5. Name: `YouTube Publisher Desktop`
+6. Нажмите **Create**
+7. Скачайте JSON файл и сохраните как `client_secrets.json` в корне проекта
 
-4. **Важно:** Файлы `.env`, `credentials.json` и `token.json` не должны попадать в Git (они уже добавлены в `.gitignore`)
+### 3. Настройка Google Sheets
 
-### Пример .env файла:
+1. Создайте новую Google Таблицу или откройте существующую
+2. Создайте лист с названием `Videos` (или любым другим)
+3. Добавьте заголовки колонок согласно [docs/SHEETS_FORMAT.md](docs/SHEETS_FORMAT.md)
+4. **Предоставьте доступ Service Account:**
+   - Нажмите **Share** в правом верхнем углу
+   - Вставьте email service account (из шага 2.3)
+   - Выберите роль **Editor**
+   - Нажмите **Send**
+
+Минимальный формат таблицы:
+
+| task_id | status | title | video_file_path | description | tags | publish_at | privacy_status |
+|---------|--------|-------|-----------------|-------------|------|------------|----------------|
+| vid_001 | READY  | My Video | /path/to/video.mp4 | Description | tag1,tag2 | 2025-12-20T10:00:00Z | unlisted |
+
+Подробнее в [docs/SHEETS_FORMAT.md](docs/SHEETS_FORMAT.md)
+
+### 4. Настройка переменных окружения
 
 ```bash
-YT_SCOPES="https://www.googleapis.com/auth/youtube.upload"
-YT_CREDENTIALS_FILE="credentials.json"
-YT_TOKEN_FILE="token.json"
+# Скопируйте пример конфигурации
+cp .env.example .env
+
+# Отредактируйте .env
 ```
+
+Обязательные параметры в `.env`:
+
+```bash
+# ID вашей Google Таблицы (из URL)
+# https://docs.google.com/spreadsheets/d/ЭТОТ_ID/edit
+GOOGLE_SHEETS_ID=your_spreadsheet_id
+
+# Диапазон листа
+GOOGLE_SHEETS_RANGE=Videos!A:Z
+
+# Путь к service account JSON
+GOOGLE_APPLICATION_CREDENTIALS=service_account.json
+
+# Путь к OAuth2 client secrets
+YOUTUBE_CLIENT_SECRETS_FILE=client_secrets.json
+
+# Путь для хранения OAuth токена (создастся автоматически)
+YOUTUBE_TOKEN_FILE=.data/youtube_token.pickle
+
+# Базовая директория для видео файлов (опционально)
+STORAGE_BASE_PATH=/path/to/videos
+```
+
+Полный список параметров смотрите в `.env.example`.
 
 ## Использование
 
-### Загрузка видео
+### Первый запуск - OAuth авторизация
 
-Базовая команда для загрузки видео:
-
-```bash
-python -m src.cli.upload_video \
-  --file path/to/video.mp4 \
-  --title "My test video"
-```
-
-Полный пример с описанием, тегами и настройками приватности:
+При первом запуске откроется браузер для авторизации YouTube:
 
 ```bash
-python -m src.cli.upload_video \
-  --file path/to/video.mp4 \
-  --title "My test video" \
-  --description "Test upload from API" \
-  --tags "tutorial,python,automation" \
-  --privacy-status unlisted
+python -m app.main
 ```
 
-### Параметры команды
-
-- `--file` (обязательный) — путь к видеофайлу
-- `--title` (обязательный) — заголовок видео
-- `--description` (опциональный) — описание видео
-- `--tags` (опциональный) — теги через запятую (например: "tag1,tag2,tag3")
-- `--privacy-status` (опциональный) — уровень приватности:
-  - `public` — публичное видео
-  - `unlisted` — видео по ссылке (по умолчанию)
-  - `private` — приватное видео
-
-### Первый запуск
-
-При первом запуске откроется браузер для OAuth авторизации:
-1. Войдите в Google аккаунт
+1. Войдите в Google аккаунт (тот, который добавили в Test Users)
 2. Разрешите доступ к YouTube API
-3. Токен будет сохранён в `token.json`
-4. Последующие запуски будут использовать сохранённый токен
+3. Токен сохранится в `.data/youtube_token.pickle`
+4. Последующие запуски не требуют авторизации
 
-### Примеры
+### Основные команды
 
-Загрузка публичного видео:
+**Обычный запуск** - публикация всех задач со статусом READY:
+
 ```bash
-python -m src.cli.upload_video \
-  --file my_video.mp4 \
-  --title "Public Tutorial" \
-  --description "Complete guide" \
-  --privacy-status public
+python -m app.main
 ```
 
-Загрузка с тегами:
+**Dry-run режим** - валидация без загрузки:
+
 ```bash
-python -m src.cli.upload_video \
-  --file tutorial.mp4 \
-  --title "Python Tutorial" \
-  --tags "python,programming,tutorial"
+python -m app.main --dry-run
 ```
+
+В dry-run режиме:
+- Проверяются все валидации
+- Проверяется наличие файлов
+- Статус меняется на `DRY_RUN_OK`
+- **НЕ** выполняется загрузка на YouTube
+
+**Verbose логирование:**
+
+```bash
+python -m app.main --verbose
+```
+
+**Настройка ретраев:**
+
+```bash
+python -m app.main --max-retries 5
+```
+
+### Workflow
+
+1. Добавьте строки в Google Sheets со статусом `READY`
+2. Запустите `python -m app.main`
+3. Система:
+   - Прочитает READY задачи
+   - Проверит наличие видео файлов
+   - Загрузит видео на YouTube
+   - Установит scheduled publish (если указано `publish_at`)
+   - Загрузит thumbnail (если указан)
+   - Обновит статус на `SCHEDULED`
+   - При ошибках установит `FAILED` + `error_message`
+
+### Статусы задач
+
+- **READY** - готова к публикации
+- **UPLOADING** - загрузка в процессе
+- **SCHEDULED** - успешно загружено и запланировано
+- **FAILED** - ошибка (смотрите `error_message`)
+- **DRY_RUN_OK** - валидация прошла (dry-run режим)
+
+### Идемпотентность
+
+Если задача уже имеет `youtube_video_id`, она будет пропущена. Это позволяет безопасно перезапускать скрипт.
+
+### Ретраи
+
+Автоматические повторы только для временных ошибок:
+- 429 (Rate Limit)
+- 5xx (Server Errors)
+- Network timeouts
+
+Постоянные ошибки (401, 403, 400) не ретраятся.
+
+Счётчик попыток сохраняется в колонке `attempts`.
 
 ## Тестирование
 
-Проект включает unit-тесты и заготовки для интеграционных тестов.
-
-### Запуск тестов
+Запуск unit-тестов:
 
 ```bash
-# Запуск всех тестов
+# Все тесты
 pytest
 
-# Запуск только юнит-тестов
+# Только unit-тесты
 pytest tests/unit/
 
-# Запуск только интеграционных тестов
-pytest tests/integration/
+# С coverage
+pytest --cov=domain --cov=adapters --cov=app
 
-# Запуск с покрытием кода
-pytest --cov=src
-
-# Подробный вывод
+# Verbose
 pytest -v
 ```
 
-### Unit-тесты
+Тесты используют моки и не обращаются к реальным API.
 
-Unit-тесты находятся в `tests/unit/` и проверяют отдельные компоненты в изоляции:
+## Структура проекта
 
-- **test_config.py** — тестирует загрузку конфигурации из переменных окружения
-  - Проверяет значения по умолчанию
-  - Проверяет кастомные переменные окружения
-  - Проверяет парсинг множественных scopes
-  - Проверяет кэширование конфигурации
+```
+yt-upload-automation/
+├── domain/
+│   ├── models.py              # VideoTask, PublishResult, enums
+│   └── services.py            # PublishService (бизнес-логика)
+├── ports/
+│   ├── metadata_repository.py # MetadataRepository interface
+│   ├── storage.py             # Storage interface
+│   └── video_backend.py       # VideoBackend interface
+├── adapters/
+│   ├── google_sheets_repository.py  # Google Sheets реализация
+│   ├── youtube_backend.py           # YouTube API реализация
+│   └── local_storage.py             # Локальное хранилище
+├── app/
+│   └── main.py                # CLI entry point, DI wiring
+├── tests/
+│   └── unit/
+│       └── domain/
+│           └── test_publish_service.py  # Тесты PublishService
+├── docs/
+│   └── SHEETS_FORMAT.md       # Спецификация формата Google Sheets
+├── .env.example               # Пример конфигурации
+├── requirements.txt           # Зависимости
+└── README.md                  # Этот файл
+```
 
-- **test_cli_upload_video.py** — тестирует CLI-скрипт загрузки видео
-  - Проверяет парсинг аргументов командной строки
-  - Проверяет вызов uploader'а с правильными параметрами
-  - Проверяет обработку ошибок
+## Troubleshooting
 
-**Важно:** Unit-тесты **НЕ обращаются** к реальному YouTube API. Все внешние зависимости замоканы.
+### Ошибка: "GOOGLE_SHEETS_ID not configured"
 
-### Integration-тесты
+Убедитесь, что файл `.env` существует и содержит `GOOGLE_SHEETS_ID`.
 
-Интеграционные тесты находятся в `tests/integration/`:
+### Ошибка: "Failed to initialize Google Sheets client"
 
-- Сейчас содержат только placeholder
-- В будущем будут добавлены тесты с реальным YouTube API
-- Потребуют валидные credentials и тестовый аккаунт
+Проверьте:
+- Файл `service_account.json` существует
+- Путь в `GOOGLE_APPLICATION_CREDENTIALS` корректный
+- Google Sheets API включён в проекте
 
-## Разработка
+### Ошибка: "Client secrets file not found"
 
-При разработке следуйте архитектурным принципам проекта (см. [docs/architecture.md](docs/architecture.md)):
+Проверьте:
+- Файл `client_secrets.json` существует
+- Путь в `YOUTUBE_CLIENT_SECRETS_FILE` корректный
 
-- `core` не должен зависеть от `adapters` или `cli`
-- Бизнес-логика в `core`, технические детали в `adapters`
-- Пишите unit-тесты для новой функциональности
+### Ошибка: "403 Forbidden" при доступе к Sheets
 
-## Зависимости
+- Убедитесь, что вы предоставили доступ service account к вашей таблице
+- Email service account должен иметь права Editor
 
-- Python 3.8+
-- Google API Client
-- OAuth 2.0 authentication
-- pytest для тестирования
+### Ошибка: "Video file not found"
+
+- Проверьте пути к файлам в колонке `video_file_path`
+- Если используете относительные пути, установите `STORAGE_BASE_PATH`
+
+### OAuth окно не открывается
+
+Скопируйте URL из консоли и откройте вручную в браузере.
+
+## Безопасность
+
+- **НЕ коммитьте** `.env`, `service_account.json`, `client_secrets.json`, `*.pickle` файлы
+- Все секретные файлы уже добавлены в `.gitignore`
+- Service Account имеет доступ только к конкретной таблице
+- OAuth токен хранится локально в зашифрованном виде
 
 ## Лицензия
 
-TODO
+MIT
