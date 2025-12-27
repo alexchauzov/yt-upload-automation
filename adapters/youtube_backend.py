@@ -46,7 +46,7 @@ class YouTubeApiBackend(VideoBackend):
 
         Args:
             client_secrets_file: Path to OAuth2 client secrets JSON.
-                                If None, uses YOUTUBE_CLIENT_SECRETS_FILE env var.
+                       If None, uses YOUTUBE_CLIENT_SECRETS_FILE env var.
             token_file: Path to store OAuth2 token.
                        If None, uses YOUTUBE_TOKEN_FILE env var or default.
 

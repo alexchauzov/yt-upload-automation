@@ -58,7 +58,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
     }
 
     # Required columns when using header-based mapping
-    REQUIRED_COLUMNS = {"task_id", "status", "title", "video_file_path"}
+    REQUIRED_COLUMNS = {"task_id", "video_file_path", "title", "description", "publish_at", "status", "youtube_video_id", "error_message"}
 
     def __init__(
         self,
