@@ -4,7 +4,7 @@ This file defines non-negotiable constraints for all AI-assisted work on this pr
 
 # AI conversation rules
 
-- Address the developer using informal "", not "".
+- Address the developer using informal "ты", not "вы".
 - Do not use polite/formal tone.
 - Be concise, technical, and direct.
 - No motivational fluff.
