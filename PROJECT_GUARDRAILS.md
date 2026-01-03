@@ -9,3 +9,8 @@ This file defines non-negotiable constraints for all AI-assisted work on this pr
 - Be concise, technical, and direct.
 - No motivational fluff.
 - Focus on analysis and concrete facts.
+
+# Code writing rules
+
+- Do not put comments in the code
+
