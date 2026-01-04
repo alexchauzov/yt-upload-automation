@@ -43,6 +43,7 @@ def sample_task():
     )
 
 
+@pytest.mark.unit
 class TestPublishServiceHappyPath:
     """Test successful publishing scenarios."""
 
@@ -125,6 +126,7 @@ class TestPublishServiceHappyPath:
         )
 
 
+@pytest.mark.unit
 class TestPublishServiceIdempotency:
     """Test idempotency - skip already uploaded tasks."""
 
@@ -155,6 +157,7 @@ class TestPublishServiceIdempotency:
         mock_storage.exists.assert_not_called()
 
 
+@pytest.mark.unit
 class TestPublishServiceValidation:
     """Test validation errors."""
 
@@ -210,6 +213,7 @@ class TestPublishServiceValidation:
         mock_video_backend.publish_video.assert_not_called()
 
 
+@pytest.mark.unit
 class TestPublishServiceRetry:
     """Test retry logic for retryable errors."""
 
@@ -303,6 +307,7 @@ class TestPublishServiceRetry:
         assert mock_metadata_repo.increment_attempts.call_count == 1
 
 
+@pytest.mark.unit
 class TestPublishServiceDryRun:
     """Test dry-run mode."""
 
@@ -363,6 +368,7 @@ class TestPublishServiceDryRun:
         assert call_args[1]["status"] == TaskStatus.FAILED.value
 
 
+@pytest.mark.unit
 class TestPublishServiceMultipleTasks:
     """Test processing multiple tasks."""
 
