@@ -60,6 +60,6 @@ logs/
 service_account.json
 
 # Claude local settings
-.claude/settings.local.json
+.claude/
 
 config.json
