@@ -164,14 +164,79 @@ pytest -v
 
 ## Testing Strategy
 
-Юнит-тесты (tests/unit/):
+### Test Markers
+
+Проект использует pytest маркеры для разделения тестов:
+
+```bash
+pytest -m smoke       # Smoke tests (imports, CLI) - быстрые, без зависимостей
+pytest -m unit        # Unit tests - с моками, без внешних API
+pytest -m acceptance  # Acceptance tests - живой Google Sheets (требует credentials)
+pytest -m integration # Integration tests - future (YouTube API)
+```
+
+### Типы тестов
+
+**Smoke tests (tests/smoke/):**
+- Проверяют базовую работоспособность (imports, CLI --help)
+- Не требуют credentials или внешних зависимостей
+- Всегда должны проходить в CI
+- Команда: `pytest -m smoke`
+
+**Unit tests (tests/unit/):**
 - Используют моки для внешних зависимостей
 - Быстрые (миллисекунды)
 - Независимые друг от друга
 - Не обращаются к реальным API
+- Команда: `pytest -m unit`
 
-Интеграционные тесты (tests/integration/):
+**Acceptance tests (tests/acceptance/):**
+- Тестируют живой Google Spreadsheet
+- Требуют GOOGLE_APPLICATION_CREDENTIALS и GOOGLE_SHEETS_ID
+- READONLY - не модифицируют данные
+- В CI автоматически пропускаются (skip) без credentials
+- Команда: `pytest -m acceptance`
+
+**Integration tests (tests/integration/):**
 - Пока не реализованы (есть placeholder)
+- Future: тесты для YouTube API
+
+### Запуск тестов
+
+```bash
+# Все тесты кроме acceptance/integration
+pytest -m "not acceptance and not integration"
+
+# Только быстрые тесты (smoke + unit)
+pytest -m "smoke or unit"
+
+# Локально с credentials (для acceptance)
+pytest -m acceptance  # Требует .env с GOOGLE_SHEETS_ID и credentials
+
+# Проверить, что acceptance корректно skip без credentials
+unset GOOGLE_APPLICATION_CREDENTIALS
+pytest -m acceptance  # Должен skip с сообщением
+```
+
+### CI Behavior
+
+GitHub Actions CI (`.github/workflows/ci.yml`):
+- Запускает smoke tests (должны pass)
+- Запускает unit tests (должны pass)
+- Acceptance tests автоматически skip (нет credentials)
+
+### Acceptance Tests Setup
+
+Для запуска acceptance тестов локально:
+
+1. Создай тестовый Google Spreadsheet с данными (см. `.env.test.example`)
+2. Расшарь таблицу на service account email
+3. Установи env vars:
+   ```bash
+   export GOOGLE_SHEETS_ID=your_test_spreadsheet_id
+   export GOOGLE_APPLICATION_CREDENTIALS=path/to/service_account.json
+   ```
+4. Запусти: `pytest -m acceptance`
 
 При написании тестов для domain/:
 - Мокай только ports/ интерфейсы

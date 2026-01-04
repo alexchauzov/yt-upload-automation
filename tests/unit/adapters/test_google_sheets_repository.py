@@ -6,6 +6,7 @@ from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
 from ports.metadata_repository import MetadataRepositoryError
 
 
+@pytest.mark.unit
 class TestGoogleSheetsRepositoryHeaderMapping:
     """Tests for header-based column mapping."""
 
