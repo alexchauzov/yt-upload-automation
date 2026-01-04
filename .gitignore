@@ -32,6 +32,7 @@ env/
 *.swp
 *.swo
 *~
+*.tmp
 
 # Testing
 .pytest_cache/
