@@ -24,15 +24,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run smoke tests
-        run: |
-          pytest -v -m smoke --tb=short
-
       - name: Run unit tests
         run: |
           pytest -v -m unit --tb=short
 
-      - name: Verify acceptance tests are skipped (no credentials)
+      - name: Run acceptance tests
         run: |
           set +e
           pytest -v -m acceptance --tb=short
@@ -40,8 +36,18 @@ jobs:
           set -e
 
           if [ "$exit_code" != "5" ] && [ "$exit_code" != "0" ]; then
-            echo "ERROR: Acceptance tests failed instead of skipping (exit code: $exit_code)"
+            echo "ERROR: Acceptance tests failed (exit code: $exit_code)"
             exit 1
           fi
 
-          echo "✓ Acceptance tests correctly skipped (no credentials available)"
+          if [ "$exit_code" == "5" ]; then
+            echo "WARNING: Acceptance tests skipped"
+            exit 1
+          fi
+
+          echo "✓ Acceptance tests passed"
+
+      - name: Run smoke tests
+        run: |
+          pytest -v -m smoke --tb=short
+
