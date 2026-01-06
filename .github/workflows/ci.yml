@@ -5,7 +5,7 @@ on:
     branches: [main]
   push:
     branches:
-      - "feature/**"
+      - "_stage/*"
 
 jobs:
   test:
