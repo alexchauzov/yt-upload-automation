@@ -16,19 +16,11 @@ jobs:
         if: github.event_name == 'push'
         uses: actions/checkout@v4
 
-      - name: Check if PR mergeable
-        if: github.event_name == 'pull_request'
-        run: |
-          if [ -z "${{ github.event.pull_request.merge_commit_sha }}" ]; then
-            echo "ERROR: merge_commit_sha is empty. PR is likely not mergeable (conflicts) or GitHub couldn't create a merge commit."
-            exit 1
-          fi
-
       - name: Checkout code (PR merge result)
         if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
       - name: Set up Python
         uses: actions/setup-python@v5
