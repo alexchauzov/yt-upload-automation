@@ -30,7 +30,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         The header row has columns in a different order than COLUMN_MAP:
         status, title, task_id, video_file_path, description, tags
         """
-        # Arrange: columns in non-standard order
+        # Arrange: columns in non-standard order (includes all required columns)
         header = [
             "status",
             "title",
@@ -39,6 +39,9 @@ class TestGoogleSheetsRepositoryHeaderMapping:
             "description",
             "tags",
             "privacy_status",
+            "publish_at",
+            "youtube_video_id",
+            "error_message",
         ]
         # Data row with values in the same (reordered) positions
         data_row = [
@@ -49,6 +52,9 @@ class TestGoogleSheetsRepositoryHeaderMapping:
             "Test description", # description (index 4)
             "tag1,tag2",        # tags (index 5)
             "private",          # privacy_status (index 6)
+            "",                 # publish_at (index 7)
+            "",                 # youtube_video_id (index 8)
+            "",                 # error_message (index 9)
         ]
 
         mock_values = MagicMock()
@@ -244,14 +250,18 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         """
         Test that header names with extra whitespace are normalized correctly.
         """
-        # Arrange: header with spaces around names
+        # Arrange: header with spaces around names (includes all required columns)
         header = [
             "  task_id  ",
             " status",
             "title ",
             "  video_file_path",
+            " description ",
+            "publish_at",
+            "youtube_video_id",
+            "error_message",
         ]
-        data_row = ["vid_001", "READY", "Whitespace Test", "/videos/ws.mp4"]
+        data_row = ["vid_001", "READY", "Whitespace Test", "/videos/ws.mp4", "Desc", "", "", ""]
 
         mock_values = MagicMock()
         mock_values.get.return_value.execute.return_value = {
@@ -279,9 +289,9 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         """
         Test that header names are case-insensitive.
         """
-        # Arrange: mixed case headers
-        header = ["TASK_ID", "Status", "TITLE", "Video_File_Path"]
-        data_row = ["vid_001", "READY", "Case Test", "/videos/case.mp4"]
+        # Arrange: mixed case headers (includes all required columns)
+        header = ["TASK_ID", "Status", "TITLE", "Video_File_Path", "Description", "Publish_At", "YouTube_Video_ID", "Error_Message"]
+        data_row = ["vid_001", "READY", "Case Test", "/videos/case.mp4", "Desc", "", "", ""]
 
         mock_values = MagicMock()
         mock_values.get.return_value.execute.return_value = {
@@ -329,13 +339,13 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         """
         Test that only rows with READY status are returned.
         """
-        header = ["task_id", "status", "title", "video_file_path"]
+        header = ["task_id", "status", "title", "video_file_path", "description", "publish_at", "youtube_video_id", "error_message"]
         rows = [
             header,
-            ["vid_001", "READY", "Ready Video", "/videos/ready.mp4"],
-            ["vid_002", "SCHEDULED", "Scheduled Video", "/videos/sched.mp4"],
-            ["vid_003", "FAILED", "Failed Video", "/videos/fail.mp4"],
-            ["vid_004", "READY", "Another Ready", "/videos/ready2.mp4"],
+            ["vid_001", "READY", "Ready Video", "/videos/ready.mp4", "Desc1", "", "", ""],
+            ["vid_002", "SCHEDULED", "Scheduled Video", "/videos/sched.mp4", "Desc2", "", "", ""],
+            ["vid_003", "FAILED", "Failed Video", "/videos/fail.mp4", "Desc3", "", "", ""],
+            ["vid_004", "READY", "Another Ready", "/videos/ready2.mp4", "Desc4", "", "", ""],
         ]
 
         mock_values = MagicMock()
