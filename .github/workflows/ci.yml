@@ -51,7 +51,15 @@ jobs:
 
           echo "Unit tests passed"
 
+      - name: Setup Google credentials
+        if: ${{ secrets.GOOGLE_SA_JSON != '' }}
+        run: echo '${{ secrets.GOOGLE_SA_JSON }}' > "$RUNNER_TEMP/sa.json"
+
       - name: Run acceptance tests
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+          GOOGLE_SHEETS_RANGE: ${{ secrets.GOOGLE_SHEETS_RANGE }}
         run: |
           set +e
           pytest -v -m acceptance --tb=short
