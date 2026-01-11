@@ -4,12 +4,14 @@ CLI utilities for managing Google Drive service account storage.
 
 ## Purpose
 
-These utilities help diagnose and manage storage quota for Google Drive service accounts:
-- Check current quota usage
-- List all files owned by service account
-- Bulk delete files to free up space
+These utilities help diagnose and manage Google Drive for service accounts:
+- Verify service account identity and authentication (`drive_whoami`)
+- Check access permissions to folders (`drive_check_folder`)
+- Check current storage quota usage (`drive_quota`)
+- List all files owned by service account (`drive_list`)
+- Bulk delete files to free up space (`drive_delete`)
 
-This is useful when acceptance tests create spreadsheet copies that accumulate over time.
+This is useful when acceptance tests create spreadsheet copies that accumulate over time, or when debugging Drive API access issues.
 
 ## Prerequisites
 
@@ -50,6 +52,42 @@ From Drive API (about.get):
   displayName:  sa-name
   kind:         drive#user
   me:           True
+```
+
+### drive_check_folder.py
+
+Check access to a Google Drive folder.
+
+```bash
+# Check specific folder
+python utils/drive_check_folder.py 1ABC...xyz
+
+# Or use RUNS_FOLDER_ID from env
+python utils/drive_check_folder.py
+```
+
+Output:
+```
+Checking folder: 1ABC...xyz
+============================================================
+ID:        1ABC...xyz
+Name:      acceptance-test-runs
+MIME Type: application/vnd.google-apps.folder
+Drive ID:  N/A (My Drive)
+Shared:    True
+
+Owners:
+  - owner@example.com (Owner Name)
+
+Capabilities (service account can...):
+  add files to folder: YES
+  remove files from folder: YES
+  list folder contents: YES
+  copy files: YES
+  delete: NO
+  edit: YES
+
+Access check: OK
 ```
 
 ### drive_quota.py
