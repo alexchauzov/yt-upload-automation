@@ -27,6 +27,31 @@ GOOGLE_APPLICATION_CREDENTIALS=.data/service_account.json
 
 ## Utilities
 
+### drive_whoami.py
+
+Show service account identity and verify authentication.
+
+```bash
+python utils/drive_whoami.py
+```
+
+Output:
+```
+Service Account Identity
+==================================================
+Credentials file: .data/service_account.json
+
+From JSON file:
+  client_email: sa-name@project.iam.gserviceaccount.com
+  project_id:   my-project-123
+
+From Drive API (about.get):
+  emailAddress: sa-name@project.iam.gserviceaccount.com
+  displayName:  sa-name
+  kind:         drive#user
+  me:           True
+```
+
 ### drive_quota.py
 
 Show storage quota for the service account.
