@@ -37,7 +37,6 @@ def require_google_credentials():
             "For GitHub Actions:\n"
             "  Configure these secrets in Settings > Secrets and variables > Actions:\n"
             "  - GOOGLE_SA_JSON (full service account JSON)\n"
-            "  - GOOGLE_SHEETS_ID\n"
-            "  - GOOGLE_SHEETS_RANGE\n\n"
+            "  - GOOGLE_SHEETS_ID\n\n"
             "See README.md for detailed setup instructions."
         )

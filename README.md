@@ -274,7 +274,6 @@ CI автоматически запускает тесты на push и PR. Д�
 |--------|----------|--------------|
 | `GOOGLE_SA_JSON` | Полное содержимое JSON-файла service account | `cat service_account.json` |
 | `GOOGLE_SHEETS_ID` | ID таблицы из URL | `https://docs.google.com/spreadsheets/d/{ID}/edit` |
-| `GOOGLE_SHEETS_RANGE` | Диапазон листа | Например: `Videos!A:Z` |
 
 #### Пример добавления GOOGLE_SA_JSON
 
@@ -307,7 +306,6 @@ For GitHub Actions:
   Configure these secrets in Settings > Secrets and variables > Actions:
   - GOOGLE_SA_JSON (full service account JSON)
   - GOOGLE_SHEETS_ID
-  - GOOGLE_SHEETS_RANGE
 ```
 
 ## Структура проекта
