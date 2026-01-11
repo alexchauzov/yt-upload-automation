@@ -1,5 +1,8 @@
 import os
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def has_google_credentials() -> bool:
