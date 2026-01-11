@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from datetime import datetime
 
@@ -8,7 +10,12 @@ from domain.models import TaskStatus
 @pytest.mark.acceptance
 class TestSheetsRead:
     def test_get_ready_tasks_returns_expected_task(self):
-        repo = GoogleSheetsMetadataRepository()
+        sheet_name = "Test #1"
+        repo = GoogleSheetsMetadataRepository(
+            spreadsheet_id=os.getenv("GOOGLE_SHEETS_ID"),
+            range_name=f"{sheet_name}!A:Z",
+            credentials_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+        )
         tasks = repo.get_ready_tasks()
 
         assert len(tasks) == 1
