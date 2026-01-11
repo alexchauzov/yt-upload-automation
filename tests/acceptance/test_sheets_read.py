@@ -3,11 +3,9 @@ from datetime import datetime
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
 from domain.models import TaskStatus
-from tests.acceptance.conftest import skip_without_credentials
 
 
 @pytest.mark.acceptance
-@skip_without_credentials
 class TestSheetsRead:
     def test_get_ready_tasks_returns_expected_task(self):
         repo = GoogleSheetsMetadataRepository()
