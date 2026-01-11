@@ -52,31 +52,14 @@ jobs:
           echo "Unit tests passed"
 
       - name: Setup Google credentials
-        if: ${{ secrets.GOOGLE_SA_JSON != '' }}
-        run: echo '${{ secrets.GOOGLE_SA_JSON }}' > "$RUNNER_TEMP/sa.json"
+        run: printf '%s' '${{ secrets.GOOGLE_SA_JSON }}' > "$RUNNER_TEMP/sa.json"
 
       - name: Run acceptance tests
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
           GOOGLE_SHEETS_RANGE: ${{ secrets.GOOGLE_SHEETS_RANGE }}
-        run: |
-          set +e
-          pytest -v -m acceptance --tb=short
-          exit_code=$?
-          set -e
-
-          if [ "$exit_code" = "5" ]; then
-            echo "WARNING: No acceptance tests found"
-            exit 0
-          fi
-
-          if [ "$exit_code" != "0" ]; then
-            echo "ERROR: Acceptance tests failed"
-            exit $exit_code
-          fi
-
-          echo "Acceptance tests passed"
+        run: pytest -v -m acceptance --tb=short
 
       - name: Run smoke tests
         run: |
