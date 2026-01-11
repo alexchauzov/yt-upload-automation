@@ -63,3 +63,4 @@ service_account*.json
 .claude/
 conversation-*.txt
 config.json
+SESSION_CONTEXT.md
