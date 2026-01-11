@@ -9,10 +9,10 @@ from domain.models import TaskStatus
 
 @pytest.mark.acceptance
 class TestSheetsRead:
-    def test_get_ready_tasks_returns_expected_task(self):
+    def test_get_ready_tasks_returns_expected_task(self, run_spreadsheet_id):
         sheet_name = "Test #1"
         repo = GoogleSheetsMetadataRepository(
-            spreadsheet_id=os.getenv("GOOGLE_SHEETS_ID"),
+            spreadsheet_id=run_spreadsheet_id,
             range_name=f"{sheet_name}!A:Z",
             credentials_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
         )
