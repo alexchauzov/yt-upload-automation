@@ -5,24 +5,39 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def has_google_credentials() -> bool:
+def get_missing_credentials() -> list[str]:
+    """Return list of missing credential configurations."""
+    missing = []
+
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    sheets_id = os.getenv("GOOGLE_SHEETS_ID")
+    if not creds_path:
+        missing.append("GOOGLE_APPLICATION_CREDENTIALS env var not set")
+    elif not os.path.exists(creds_path):
+        missing.append(f"GOOGLE_APPLICATION_CREDENTIALS file not found: {creds_path}")
 
-    if not creds_path or not sheets_id:
-        return False
+    if not os.getenv("GOOGLE_SHEETS_ID"):
+        missing.append("GOOGLE_SHEETS_ID env var not set")
 
-    if not os.path.exists(creds_path):
-        return False
-
-    return True
+    return missing
 
 
-skip_without_credentials = pytest.mark.skipif(
-    not has_google_credentials(),
-    reason=(
-        "Google credentials not available. "
-        "Set GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_SHEETS_ID "
-        "to run acceptance tests."
-    ),
-)
+@pytest.fixture(autouse=True)
+def require_google_credentials():
+    """Fail acceptance tests with clear message if credentials are missing."""
+    missing = get_missing_credentials()
+    if missing:
+        pytest.fail(
+            "Google Sheets credentials not configured.\n\n"
+            "Missing:\n"
+            + "\n".join(f"  - {m}" for m in missing)
+            + "\n\n"
+            "For local development:\n"
+            "  1. Create .env file with GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_SHEETS_ID\n"
+            "  2. Ensure the credentials file exists\n\n"
+            "For GitHub Actions:\n"
+            "  Configure these secrets in Settings > Secrets and variables > Actions:\n"
+            "  - GOOGLE_SA_JSON (full service account JSON)\n"
+            "  - GOOGLE_SHEETS_ID\n"
+            "  - GOOGLE_SHEETS_RANGE\n\n"
+            "See README.md for detailed setup instructions."
+        )
