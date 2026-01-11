@@ -246,23 +246,69 @@ python -m app.main --max-retries 5
 
 ## Тестирование
 
-Запуск unit-тестов:
+### Локальный запуск
 
 ```bash
+# Unit-тесты (с моками, без внешних API)
+pytest -m unit
+
+# Acceptance-тесты (требуют настроенные credentials)
+pytest -m acceptance
+
 # Все тесты
 pytest
 
-# Только unit-тесты
-pytest tests/unit/
-
 # С coverage
 pytest --cov=domain --cov=adapters --cov=app
-
-# Verbose
-pytest -v
 ```
 
-Тесты используют моки и не обращаются к реальным API.
+### GitHub Actions CI
+
+CI автоматически запускает тесты на push и PR. Для работы acceptance-тестов настройте секреты репозитория.
+
+#### Настройка GitHub Secrets
+
+Перейдите в **Settings > Secrets and variables > Actions** и добавьте:
+
+| Secret | Описание | Как получить |
+|--------|----------|--------------|
+| `GOOGLE_SA_JSON` | Полное содержимое JSON-файла service account | `cat service_account.json` |
+| `GOOGLE_SHEETS_ID` | ID таблицы из URL | `https://docs.google.com/spreadsheets/d/{ID}/edit` |
+| `GOOGLE_SHEETS_RANGE` | Диапазон листа | Например: `Videos!A:Z` |
+
+#### Пример добавления GOOGLE_SA_JSON
+
+```bash
+# Скопируйте весь вывод (включая фигурные скобки)
+cat service_account.json
+```
+
+Вставьте полный JSON как значение секрета:
+```json
+{
+  "type": "service_account",
+  "project_id": "...",
+  "private_key_id": "...",
+  ...
+}
+```
+
+#### Без секретов
+
+Если секреты не настроены, acceptance-тесты упадут с сообщением:
+```
+Google Sheets credentials not configured.
+
+Missing:
+  - GOOGLE_APPLICATION_CREDENTIALS env var not set
+  - GOOGLE_SHEETS_ID env var not set
+
+For GitHub Actions:
+  Configure these secrets in Settings > Secrets and variables > Actions:
+  - GOOGLE_SA_JSON (full service account JSON)
+  - GOOGLE_SHEETS_ID
+  - GOOGLE_SHEETS_RANGE
+```
 
 ## Структура проекта
 
