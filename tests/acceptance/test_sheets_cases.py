@@ -267,24 +267,27 @@ class TestSheetsConditionalUpdate:
         - .mp4 => SCHEDULED + youtube_video_id
         - other => FAILED + error message
 
-        Expected in Test #6:
-        - 6 rows total with shuffled columns (status, video_file_path, title, task_id, description, publish_at)
-        - Initial: READY (.mp6), READY (.mp4), FAILED (.mp5), SCHEDULED (.mp5), READY (.mp4), READY (.mp6)
-        - After update: 2 SCHEDULED (.mp4), 4 FAILED (non-.mp4)
+        Test logic is extension-based, independent of row order.
+        Shuffled columns in Test #6 sheet.
         """
         repo = repo_for_sheet("Test #6", runtime_spreadsheet_id)
 
-        all_tasks = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
-        assert len(all_tasks) == 6, f"Expected 6 total rows, got {len(all_tasks)}"
+        all_tasks_before = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
+        assert len(all_tasks_before) > 0, "Sheet should contain tasks"
 
-        for task in all_tasks:
+        mp4_task_ids = set()
+        non_mp4_task_ids = set()
+
+        for task in all_tasks_before:
             if task.video_file_path.endswith(".mp4"):
+                mp4_task_ids.add(task.task_id)
                 repo.update_task_status(
                     task,
                     status=TaskStatus.SCHEDULED.value,
                     youtube_video_id=f"tAsKiD{task.task_id}",
                 )
             else:
+                non_mp4_task_ids.add(task.task_id)
                 repo.update_task_status(
                     task,
                     status=TaskStatus.FAILED.value,
@@ -292,21 +295,22 @@ class TestSheetsConditionalUpdate:
                 )
 
         all_tasks_after = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
-
-        scheduled_count = sum(1 for t in all_tasks_after if t.status == TaskStatus.SCHEDULED)
-        failed_count = sum(1 for t in all_tasks_after if t.status == TaskStatus.FAILED)
-
-        assert scheduled_count == 2, f"Expected 2 SCHEDULED tasks (.mp4), got {scheduled_count}"
-        assert failed_count == 4, f"Expected 4 FAILED tasks (non-.mp4), got {failed_count}"
+        assert len(all_tasks_after) == len(all_tasks_before), "Row count should not change"
 
         for task in all_tasks_after:
-            if task.status == TaskStatus.SCHEDULED:
+            if task.task_id in mp4_task_ids:
+                assert task.status == TaskStatus.SCHEDULED, (
+                    f"Task {task.task_id} (.mp4): expected status SCHEDULED, got {task.status}"
+                )
                 assert task.youtube_video_id == f"tAsKiD{task.task_id}", (
-                    f"Task {task.task_id}: expected youtube_video_id=tAsKiD{task.task_id}, "
+                    f"Task {task.task_id} (.mp4): expected youtube_video_id=tAsKiD{task.task_id}, "
                     f"got {task.youtube_video_id}"
                 )
-            elif task.status == TaskStatus.FAILED:
+            elif task.task_id in non_mp4_task_ids:
+                assert task.status == TaskStatus.FAILED, (
+                    f"Task {task.task_id} (non-.mp4): expected status FAILED, got {task.status}"
+                )
                 assert task.error_message == "Incorrect video format", (
-                    f"Task {task.task_id}: expected error_message='Incorrect video format', "
+                    f"Task {task.task_id} (non-.mp4): expected error_message='Incorrect video format', "
                     f"got '{task.error_message}'"
                 )
