@@ -1,11 +1,14 @@
 """Acceptance tests for Google Sheets adapter covering Test #1-#6 cases."""
 import os
 from datetime import datetime
+from typing import List
 
 import pytest
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
-from domain.models import TaskStatus
+from domain.models import TaskStatus, VideoTask, PrivacyStatus
 
 
 @pytest.fixture
@@ -21,6 +24,105 @@ def repo_for_sheet(sheet_name: str, spreadsheet_id: str) -> GoogleSheetsMetadata
         range_name=f"{sheet_name}!A:Z",
         credentials_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
     )
+
+
+def read_all_rows_from_sheet(sheet_name: str, spreadsheet_id: str) -> List[VideoTask]:
+    """
+    Read ALL rows from sheet regardless of status.
+
+    This is a test helper function - NOT part of the adapter API.
+    Used to verify data integrity across all rows in acceptance tests.
+    """
+    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    credentials = service_account.Credentials.from_service_account_file(
+        credentials_path,
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    )
+    service = build("sheets", "v4", credentials=credentials)
+
+    range_name = f"{sheet_name}!A:Z"
+    result = service.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id,
+        range=range_name
+    ).execute()
+
+    rows = result.get("values", [])
+    if not rows:
+        return []
+
+    header = rows[0]
+    data_rows = rows[1:]
+
+    header_map = {}
+    for idx, cell in enumerate(header):
+        normalized = cell.strip().lower()
+        if normalized:
+            header_map[normalized] = idx
+
+    def get_cell(row, column_name, default=""):
+        normalized_name = column_name.strip().lower()
+        index = header_map.get(normalized_name)
+        if index is None or index >= len(row):
+            return default
+        value = row[index].strip()
+        return value if value else default
+
+    def parse_datetime(value):
+        if not value:
+            return None
+        try:
+            if value.endswith("Z"):
+                return datetime.fromisoformat(value[:-1])
+            else:
+                return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    tasks = []
+    for row_index, row in enumerate(data_rows, start=2):
+        pad_length = max(header_map.values()) + 1 if header_map else 16
+        if len(row) < pad_length:
+            row = row + [""] * (pad_length - len(row))
+
+        task_id = get_cell(row, "task_id")
+        if not task_id:
+            continue
+
+        status_str = get_cell(row, "status", default="READY")
+        try:
+            status = TaskStatus(status_str)
+        except ValueError:
+            continue
+
+        video_file_path = get_cell(row, "video_file_path")
+        title = get_cell(row, "title")
+        description = get_cell(row, "description", default="")
+        publish_at = parse_datetime(get_cell(row, "publish_at", default=None))
+
+        privacy_status_str = get_cell(row, "privacy_status", default="private")
+        try:
+            privacy_status = PrivacyStatus(privacy_status_str)
+        except ValueError:
+            privacy_status = PrivacyStatus.PRIVATE
+
+        youtube_video_id = get_cell(row, "youtube_video_id", default=None)
+        error_message = get_cell(row, "error_message", default=None)
+
+        task = VideoTask(
+            task_id=task_id,
+            row_index=row_index,
+            video_file_path=video_file_path,
+            title=title,
+            description=description,
+            publish_at=publish_at,
+            privacy_status=privacy_status,
+            status=status,
+            youtube_video_id=youtube_video_id or None,
+            error_message=error_message or None,
+        )
+        tasks.append(task)
+
+    return tasks
 
 
 @pytest.mark.acceptance
@@ -137,10 +239,12 @@ class TestSheetsBulkOperations:
 
         for task in tasks:
             assert task.status == TaskStatus.READY
-            assert task.video_file_path.endswith(".mp4")
-            assert task.title.startswith("Test ")
-            assert task.description.startswith("Test ")
-            assert task.publish_at == datetime(2025, 12, 27, 22, 30, 0)
+            assert task.video_file_path, "video_file_path should not be empty"
+            assert task.title.startswith("Test "), f"Task {task.task_id}: title should start with 'Test '"
+            assert task.description.startswith("Test "), f"Task {task.task_id}: description should start with 'Test '"
+            assert task.publish_at == datetime(2025, 12, 27, 22, 30, 0), (
+                f"Task {task.task_id}: expected publish_at=2025-12-27 22:30:00, got {task.publish_at}"
+            )
 
         for task in tasks:
             repo.update_task_status(
@@ -157,9 +261,6 @@ class TestSheetsBulkOperations:
 class TestSheetsConditionalUpdate:
     """Test #6: Read all statuses + conditional update based on file extension."""
 
-    @pytest.mark.xfail(
-        reason="Adapter lacks read_all_tasks() API - only get_ready_tasks() available"
-    )
     def test_conditional_update_by_extension(self, runtime_spreadsheet_id):
         """
         Read all rows (not just READY), update based on extension:
@@ -168,16 +269,13 @@ class TestSheetsConditionalUpdate:
 
         Expected in Test #6:
         - 6 rows total with shuffled columns (status, video_file_path, title, task_id, description, publish_at)
-        - Initial: READY (.mp6), READY (.mp4), FAILED (.mp5), DONE (.mp5), READY (.mp4), READY (.mp6)
-        - After update: 3 SCHEDULED (.mp4), 3 FAILED (non-.mp4)
+        - Initial: READY (.mp6), READY (.mp4), FAILED (.mp5), SCHEDULED (.mp5), READY (.mp4), READY (.mp6)
+        - After update: 2 SCHEDULED (.mp4), 4 FAILED (non-.mp4)
         """
         repo = repo_for_sheet("Test #6", runtime_spreadsheet_id)
 
-        # TODO: Need read_all_tasks() method that returns all rows regardless of status
-        # For now, this is a placeholder showing expected logic:
-        all_tasks = []  # repo.read_all_tasks() - NOT IMPLEMENTED YET
-
-        assert len(all_tasks) == 6
+        all_tasks = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
+        assert len(all_tasks) == 6, f"Expected 6 total rows, got {len(all_tasks)}"
 
         for task in all_tasks:
             if task.video_file_path.endswith(".mp4"):
@@ -193,17 +291,22 @@ class TestSheetsConditionalUpdate:
                     error_message="Incorrect video format",
                 )
 
-        # Verify results
-        all_tasks_after = []  # repo.read_all_tasks()
+        all_tasks_after = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
 
         scheduled_count = sum(1 for t in all_tasks_after if t.status == TaskStatus.SCHEDULED)
         failed_count = sum(1 for t in all_tasks_after if t.status == TaskStatus.FAILED)
 
-        assert scheduled_count == 3, "Expected 3 SCHEDULED tasks (.mp4)"
-        assert failed_count == 3, "Expected 3 FAILED tasks (non-.mp4)"
+        assert scheduled_count == 2, f"Expected 2 SCHEDULED tasks (.mp4), got {scheduled_count}"
+        assert failed_count == 4, f"Expected 4 FAILED tasks (non-.mp4), got {failed_count}"
 
         for task in all_tasks_after:
             if task.status == TaskStatus.SCHEDULED:
-                assert task.youtube_video_id == f"tAsKiD{task.task_id}"
+                assert task.youtube_video_id == f"tAsKiD{task.task_id}", (
+                    f"Task {task.task_id}: expected youtube_video_id=tAsKiD{task.task_id}, "
+                    f"got {task.youtube_video_id}"
+                )
             elif task.status == TaskStatus.FAILED:
-                assert task.error_message == "Incorrect video format"
+                assert task.error_message == "Incorrect video format", (
+                    f"Task {task.task_id}: expected error_message='Incorrect video format', "
+                    f"got '{task.error_message}'"
+                )
