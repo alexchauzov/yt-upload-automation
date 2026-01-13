@@ -5,7 +5,11 @@ on:
     branches: [main]
   push:
     branches:
-      - "_stage/*"
+      - "_stage/**"
+
+concurrency:
+  group: acceptance-sheets
+  cancel-in-progress: false
 
 jobs:
   test:
