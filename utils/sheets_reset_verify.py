@@ -98,7 +98,15 @@ def normalize_values(values: list[list]) -> list[list[str]]:
 
 
 def reset_runtime(service, template_id: str, runtime_id: str) -> bool:
-    """Reset runtime spreadsheet by copying all sheets from template."""
+    """Reset runtime spreadsheet by copying all sheets from template.
+
+    Algorithm:
+    1. Add temporary _EMPTY_ sheet (so spreadsheet is never empty)
+    2. Delete all existing sheets (avoids name conflicts)
+    3. Copy all sheets from template (get "Copy of X" names)
+    4. Rename copied sheets to original names
+    5. Delete _EMPTY_ sheet
+    """
     print(f"Resetting runtime spreadsheet...")
     print(f"  Template: {template_id}")
     print(f"  Runtime:  {runtime_id}")
@@ -117,6 +125,23 @@ def reset_runtime(service, template_id: str, runtime_id: str) -> bool:
 
     old_sheet_ids = [s["sheetId"] for s in runtime_sheets]
 
+    print("  Adding temporary _EMPTY_ sheet...")
+    add_result = service.spreadsheets().batchUpdate(
+        spreadsheetId=runtime_id,
+        body={"requests": [{"addSheet": {"properties": {"title": "_EMPTY_"}}}]}
+    ).execute()
+    empty_sheet_id = add_result["replies"][0]["addSheet"]["properties"]["sheetId"]
+    print(f"    -> Created _EMPTY_ sheet ID {empty_sheet_id}")
+
+    if old_sheet_ids:
+        print(f"  Deleting {len(old_sheet_ids)} old sheet(s)...")
+        delete_requests = [{"deleteSheet": {"sheetId": sid}} for sid in old_sheet_ids]
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=runtime_id,
+            body={"requests": delete_requests}
+        ).execute()
+
+    print()
     new_sheets = []
     for ts in template_sheets:
         print(f"  Copying sheet '{ts['title']}'...")
@@ -127,34 +152,28 @@ def reset_runtime(service, template_id: str, runtime_id: str) -> bool:
         ).execute()
         new_sheets.append({
             "sheetId": result["sheetId"],
+            "copyName": result.get("title", "unknown"),
             "desiredTitle": ts["title"]
         })
         print(f"    -> Created sheet ID {result['sheetId']} ('{result.get('title', 'unknown')}')")
 
     print()
-    print("Applying batch update (delete old + rename new)...")
-
-    requests = []
-
-    for old_id in old_sheet_ids:
-        requests.append({"deleteSheet": {"sheetId": old_id}})
-
-    for ns in new_sheets:
-        requests.append({
+    print("  Renaming copied sheets to original names...")
+    rename_requests = [
+        {
             "updateSheetProperties": {
-                "properties": {
-                    "sheetId": ns["sheetId"],
-                    "title": ns["desiredTitle"]
-                },
+                "properties": {"sheetId": ns["sheetId"], "title": ns["desiredTitle"]},
                 "fields": "title"
             }
-        })
+        }
+        for ns in new_sheets
+    ]
+    rename_requests.append({"deleteSheet": {"sheetId": empty_sheet_id}})
 
-    if requests:
-        service.spreadsheets().batchUpdate(
-            spreadsheetId=runtime_id,
-            body={"requests": requests}
-        ).execute()
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=runtime_id,
+        body={"requests": rename_requests}
+    ).execute()
 
     final_sheets = get_spreadsheet_sheets(service, runtime_id)
     print(f"Runtime sheets (after): {[s['title'] for s in final_sheets]}")
