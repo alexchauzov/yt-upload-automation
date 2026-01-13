@@ -103,6 +103,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
                 scopes=["https://www.googleapis.com/auth/spreadsheets"],
             )
             self.service = build("sheets", "v4", credentials=credentials)
+            self._header_map = None
             logger.info(
                 f"GoogleSheetsMetadataRepository initialized: "
                 f"spreadsheet_id={self.spreadsheet_id}, range={self.range_name}"
@@ -143,6 +144,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
             # Build header_map from first row (normalized: strip + lowercase)
             header_map = self._build_header_map(header)
+
+            # Cache header_map for use in write operations
+            self._header_map = header_map
 
             # Determine padding length based on header_map or COLUMN_MAP
             if header_map is not None:
@@ -231,6 +235,65 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
         return header_map
 
+    def _ensure_header_map(self) -> None:
+        """
+        Ensure header_map is loaded. Fetch from sheet if not cached.
+
+        Raises:
+            MetadataRepositoryError: If fetching header fails.
+        """
+        if self._header_map is not None:
+            return
+
+        try:
+            result = (
+                self.service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range=self.range_name, majorDimension="ROWS")
+                .execute()
+            )
+
+            rows = result.get("values", [])
+            if not rows:
+                logger.warning("Sheet is empty, using COLUMN_MAP fallback for writes")
+                self._header_map = None
+                return
+
+            header = rows[0]
+            self._header_map = self._build_header_map(header)
+
+        except HttpError as e:
+            raise MetadataRepositoryError(f"Failed to fetch header: {e}") from e
+        except Exception as e:
+            raise MetadataRepositoryError(f"Failed to ensure header_map: {e}") from e
+
+    def _get_column_index(self, column_name: str) -> int:
+        """
+        Get column index by name, using header_map if available, otherwise COLUMN_MAP.
+
+        Args:
+            column_name: Column name to look up.
+
+        Returns:
+            Column index (0-indexed).
+
+        Raises:
+            MetadataRepositoryError: If column not found.
+        """
+        self._ensure_header_map()
+
+        normalized_name = column_name.strip().lower()
+
+        if self._header_map is not None and normalized_name in self._header_map:
+            return self._header_map[normalized_name]
+
+        if column_name in self.COLUMN_MAP:
+            return self.COLUMN_MAP[column_name]
+
+        raise MetadataRepositoryError(
+            f"Column '{column_name}' not found in header_map or COLUMN_MAP"
+        )
+
     def update_task_status(
         self,
         task: VideoTask,
@@ -257,7 +320,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             updates = []
 
             # Status column
-            status_col = self._column_letter(self.COLUMN_MAP["status"])
+            status_col_idx = self._get_column_index("status")
+            status_col = self._column_letter(status_col_idx)
             updates.append({
                 "range": f"{self._sheet_name()}!{status_col}{row_index}",
                 "values": [[status]],
@@ -265,7 +329,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
             # YouTube video ID
             if youtube_video_id is not None:
-                video_id_col = self._column_letter(self.COLUMN_MAP["youtube_video_id"])
+                video_id_col_idx = self._get_column_index("youtube_video_id")
+                video_id_col = self._column_letter(video_id_col_idx)
                 updates.append({
                     "range": f"{self._sheet_name()}!{video_id_col}{row_index}",
                     "values": [[youtube_video_id]],
@@ -273,14 +338,16 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
             # Error message
             if error_message is not None:
-                error_col = self._column_letter(self.COLUMN_MAP["error_message"])
+                error_col_idx = self._get_column_index("error_message")
+                error_col = self._column_letter(error_col_idx)
                 updates.append({
                     "range": f"{self._sheet_name()}!{error_col}{row_index}",
                     "values": [[error_message]],
                 })
 
             # Updated timestamp
-            updated_col = self._column_letter(self.COLUMN_MAP["updated_at"])
+            updated_col_idx = self._get_column_index("updated_at")
+            updated_col = self._column_letter(updated_col_idx)
             updates.append({
                 "range": f"{self._sheet_name()}!{updated_col}{row_index}",
                 "values": [[datetime.utcnow().isoformat() + "Z"]],
@@ -319,14 +386,16 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             updates = []
 
             # Attempts column
-            attempts_col = self._column_letter(self.COLUMN_MAP["attempts"])
+            attempts_col_idx = self._get_column_index("attempts")
+            attempts_col = self._column_letter(attempts_col_idx)
             updates.append({
                 "range": f"{self._sheet_name()}!{attempts_col}{row_index}",
                 "values": [[new_attempts]],
             })
 
             # Last attempt timestamp
-            last_attempt_col = self._column_letter(self.COLUMN_MAP["last_attempt_at"])
+            last_attempt_col_idx = self._get_column_index("last_attempt_at")
+            last_attempt_col = self._column_letter(last_attempt_col_idx)
             updates.append({
                 "range": f"{self._sheet_name()}!{last_attempt_col}{row_index}",
                 "values": [[datetime.utcnow().isoformat() + "Z"]],
@@ -549,8 +618,11 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
     def _mark_row_failed(self, row_index: int, error_message: str) -> None:
         """Mark a row as FAILED with error message (best effort)."""
         try:
-            status_col = self._column_letter(self.COLUMN_MAP["status"])
-            error_col = self._column_letter(self.COLUMN_MAP["error_message"])
+            status_col_idx = self._get_column_index("status")
+            status_col = self._column_letter(status_col_idx)
+
+            error_col_idx = self._get_column_index("error_message")
+            error_col = self._column_letter(error_col_idx)
 
             updates = [
                 {
