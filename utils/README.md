@@ -1,17 +1,18 @@
-# Google Drive Utilities
+# Google Drive & Sheets Utilities
 
-CLI utilities for managing Google Drive service account storage.
+CLI utilities for managing Google Drive service account storage and Google Sheets operations.
 
 ## Purpose
 
-These utilities help diagnose and manage Google Drive for service accounts:
+These utilities help diagnose and manage Google Drive/Sheets for service accounts:
 - Verify service account identity and authentication (`drive_whoami`)
 - Check access permissions to folders (`drive_check_folder`)
 - Check current storage quota usage (`drive_quota`)
 - List all files owned by service account (`drive_list`)
 - Bulk delete files to free up space (`drive_delete`)
+- Reset and verify spreadsheet data (`sheets_reset_verify`)
 
-This is useful when acceptance tests create spreadsheet copies that accumulate over time, or when debugging Drive API access issues.
+This is useful when acceptance tests need to reset spreadsheet state, when debugging Drive API access issues, or when managing accumulated test files.
 
 ## Prerequisites
 
@@ -153,6 +154,68 @@ python utils/drive_delete.py --input files.tsv --yes
 
 # Delete and empty trash
 python utils/drive_delete.py --input files.tsv --yes --empty-trash
+```
+
+### sheets_reset_verify.py
+
+Reset runtime spreadsheet from template and verify data match. Uses Sheets API `copyTo` which works with service accounts (unlike Drive `files.copy` which requires create permissions).
+
+**Additional env vars:**
+```bash
+export TEMPLATE_SPREADSHEET_ID=your_template_spreadsheet_id
+export RUNTIME_SPREADSHEET_ID=your_runtime_spreadsheet_id
+```
+
+```bash
+# Reset runtime from template, then verify match
+python utils/sheets_reset_verify.py
+
+# Only verify (no reset)
+python utils/sheets_reset_verify.py --verify-only
+
+# Only reset (no verify)
+python utils/sheets_reset_verify.py --reset-only
+
+# Override IDs via command line
+python utils/sheets_reset_verify.py --template-id ABC123 --runtime-id XYZ789
+```
+
+Output:
+```
+============================================================
+RESET
+============================================================
+Resetting runtime spreadsheet...
+  Template: 1ABC...
+  Runtime:  1XYZ...
+
+Template sheets: ['Videos', 'Config']
+Runtime sheets (before): ['Videos', 'Config']
+
+  Copying sheet 'Videos'...
+    -> Created sheet ID 123456789 ('Copy of Videos')
+  Copying sheet 'Config'...
+    -> Created sheet ID 987654321 ('Copy of Config')
+
+Applying batch update (delete old + rename new)...
+Runtime sheets (after): ['Videos', 'Config']
+
+Reset complete.
+
+============================================================
+VERIFY
+============================================================
+Verifying spreadsheet match...
+
+Sheet names match: ['Config', 'Videos']
+
+  Checking sheet 'Config'...
+    OK (5 rows, 2 cols)
+  Checking sheet 'Videos'...
+    OK (10 rows, 15 cols)
+
+============================================================
+SUCCESS
 ```
 
 ## Typical Workflow
