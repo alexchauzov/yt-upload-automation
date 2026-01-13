@@ -199,9 +199,6 @@ class TestSheetsWriteNormalColumns:
 class TestSheetsWriteShuffledColumns:
     """Test #4: Write + read-back with shuffled column order."""
 
-    @pytest.mark.xfail(
-        reason="Adapter update_task_status uses COLUMN_MAP instead of header_map (shuffled columns not supported for writes)"
-    )
     def test_write_and_readback_shuffled_columns(self, runtime_spreadsheet_id):
         """Update with shuffled columns should work but currently uses COLUMN_MAP fallback."""
         repo = repo_for_sheet("Test #4", runtime_spreadsheet_id)
