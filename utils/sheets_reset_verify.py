@@ -112,6 +112,12 @@ def reset_runtime(service, template_id: str, runtime_id: str) -> bool:
     print(f"  Runtime:  {runtime_id}")
     print()
 
+    if template_id == runtime_id:
+        print("ERROR: Template and runtime spreadsheet IDs are identical", file=sys.stderr)
+        print("       This would destroy the template spreadsheet!", file=sys.stderr)
+        print("       Aborting reset.", file=sys.stderr)
+        return False
+
     template_sheets = get_spreadsheet_sheets(service, template_id)
     runtime_sheets = get_spreadsheet_sheets(service, runtime_id)
 
@@ -291,7 +297,7 @@ def main():
             success = False
         print()
 
-    if not args.reset_only:
+    if not args.reset_only and success:
         print("=" * 60)
         print("VERIFY")
         print("=" * 60)
