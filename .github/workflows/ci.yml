@@ -54,10 +54,18 @@ jobs:
       - name: Setup Google credentials
         run: printf '%s' '${{ secrets.GOOGLE_SA_JSON }}' > "$RUNNER_TEMP/sa.json"
 
+      - name: Reset runtime spreadsheet
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+          TEMPLATE_SPREADSHEET_ID: ${{ secrets.TEMPLATE_SPREADSHEET_ID }}
+          RUNTIME_SPREADSHEET_ID: ${{ secrets.RUNTIME_SPREADSHEET_ID }}
+        run: python utils/sheets_reset_verify.py
+
       - name: Run acceptance tests
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
-          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+          TEMPLATE_SPREADSHEET_ID: ${{ secrets.TEMPLATE_SPREADSHEET_ID }}
+          RUNTIME_SPREADSHEET_ID: ${{ secrets.RUNTIME_SPREADSHEET_ID }}
         run: pytest -v -m acceptance --tb=short
 
       - name: Run smoke tests
