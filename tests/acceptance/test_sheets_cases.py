@@ -15,12 +15,6 @@ from ports.media_file_store import MediaFileStore
 from tests.acceptance.fake_youtube_backend import FakeYouTubeBackend, FakeYouTubeMode
 
 
-@pytest.fixture
-def runtime_spreadsheet_id():
-    """Get runtime spreadsheet ID from environment."""
-    return os.getenv("RUNTIME_SPREADSHEET_ID")
-
-
 def repo_for_sheet(sheet_name: str, spreadsheet_id: str) -> GoogleSheetsMetadataRepository:
     """Create repository instance for a specific sheet."""
     return GoogleSheetsMetadataRepository(
@@ -169,9 +163,9 @@ def read_all_rows_from_sheet(sheet_name: str, spreadsheet_id: str) -> List[Video
 class TestSheetsBasicRead:
     """Test #1: Basic read with standard column order."""
 
-    def test_read_single_ready_task(self, runtime_spreadsheet_id):
+    def test_read_single_ready_task(self, run_spreadsheet_id):
         """Read single READY task from Test #1 sheet with standard columns."""
-        repo = repo_for_sheet("Test #1", runtime_spreadsheet_id)
+        repo = repo_for_sheet("Test #1", run_spreadsheet_id)
         tasks = repo.get_ready_tasks()
 
         assert len(tasks) == 1
@@ -193,9 +187,9 @@ class TestSheetsBasicRead:
 class TestSheetsShuffledColumns:
     """Test #2: Read with shuffled column order."""
 
-    def test_read_shuffled_columns(self, runtime_spreadsheet_id):
+    def test_read_shuffled_columns(self, run_spreadsheet_id):
         """Columns shuffled but data same as Test #1."""
-        repo = repo_for_sheet("Test #2", runtime_spreadsheet_id)
+        repo = repo_for_sheet("Test #2", run_spreadsheet_id)
         tasks = repo.get_ready_tasks()
 
         assert len(tasks) == 1
@@ -215,9 +209,9 @@ class TestSheetsShuffledColumns:
 class TestSheetsWriteNormalColumns:
     """Test #3: Write + read-back with normal column order."""
 
-    def test_write_and_readback_normal_columns(self, runtime_spreadsheet_id):
+    def test_write_and_readback_normal_columns(self, run_spreadsheet_id):
         """Update status and youtube_video_id, then verify."""
-        repo = repo_for_sheet("Test #3", runtime_spreadsheet_id)
+        repo = repo_for_sheet("Test #3", run_spreadsheet_id)
 
         tasks = repo.get_ready_tasks()
         assert len(tasks) == 1
@@ -239,9 +233,9 @@ class TestSheetsWriteNormalColumns:
 class TestSheetsWriteShuffledColumns:
     """Test #4: Write + read-back with shuffled column order."""
 
-    def test_write_and_readback_shuffled_columns(self, runtime_spreadsheet_id):
+    def test_write_and_readback_shuffled_columns(self, run_spreadsheet_id):
         """Update with shuffled columns should work but currently uses COLUMN_MAP fallback."""
-        repo = repo_for_sheet("Test #4", runtime_spreadsheet_id)
+        repo = repo_for_sheet("Test #4", run_spreadsheet_id)
 
         tasks = repo.get_ready_tasks()
         assert len(tasks) == 1
@@ -263,7 +257,7 @@ class TestSheetsWriteShuffledColumns:
 class TestSheetsBulkOperations:
     """Test #5: Bulk process READY tasks through PublishService."""
 
-    def test_bulk_read_and_update(self, runtime_spreadsheet_id):
+    def test_bulk_read_and_update(self, run_spreadsheet_id):
         """
         Process 6 READY tasks through real PublishService flow.
 
@@ -271,7 +265,7 @@ class TestSheetsBulkOperations:
         No manual status painting; PublishService handles everything.
         Sheet may contain mixed extensions; outcomes determined by FakeYouTubeBackend.
         """
-        repo = repo_for_sheet("Test #5", runtime_spreadsheet_id)
+        repo = repo_for_sheet("Test #5", run_spreadsheet_id)
 
         # Verify initial state: 6 READY tasks
         tasks_before = repo.get_ready_tasks()
@@ -295,7 +289,7 @@ class TestSheetsBulkOperations:
         ]
 
         # Process through PublishService (real flow)
-        service = create_publish_service_for_test("Test #5", runtime_spreadsheet_id)
+        service = create_publish_service_for_test("Test #5", run_spreadsheet_id)
         stats = service.publish_all_ready_tasks()
 
         # Verify processing stats
@@ -312,7 +306,7 @@ class TestSheetsBulkOperations:
         assert len(tasks_after) == 0, "All READY tasks should be processed"
 
         # Verify outcomes for each task
-        all_tasks = read_all_rows_from_sheet("Test #5", runtime_spreadsheet_id)
+        all_tasks = read_all_rows_from_sheet("Test #5", run_spreadsheet_id)
         mp4_or_mov_task_ids = {task.task_id for task in mp4_or_mov_tasks}
         other_task_ids = {task.task_id for task in other_tasks}
 
@@ -340,7 +334,7 @@ class TestSheetsBulkOperations:
 class TestSheetsConditionalUpdate:
     """Test #6: Process mixed extensions through PublishService."""
 
-    def test_conditional_update_by_extension(self, runtime_spreadsheet_id):
+    def test_conditional_update_by_extension(self, run_spreadsheet_id):
         """
         Process READY tasks with mixed extensions through PublishService.
 
@@ -351,7 +345,7 @@ class TestSheetsConditionalUpdate:
         Extension validation logic is in FakeYouTubeBackend, NOT in test.
         Test only verifies outcomes. Shuffled columns in Test #6 sheet.
         """
-        repo = repo_for_sheet("Test #6", runtime_spreadsheet_id)
+        repo = repo_for_sheet("Test #6", run_spreadsheet_id)
 
         # Verify initial state
         tasks_before = repo.get_ready_tasks()
@@ -371,7 +365,7 @@ class TestSheetsConditionalUpdate:
         assert len(non_mp4_task_ids) > 0, "Should have at least one non-.mp4 task"
 
         # Process through PublishService (real flow)
-        service = create_publish_service_for_test("Test #6", runtime_spreadsheet_id)
+        service = create_publish_service_for_test("Test #6", run_spreadsheet_id)
         stats = service.publish_all_ready_tasks()
 
         # Verify processing stats
@@ -389,7 +383,7 @@ class TestSheetsConditionalUpdate:
         assert len(tasks_after) == 0, "All READY tasks should be processed"
 
         # Verify outcomes for each task
-        all_tasks = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
+        all_tasks = read_all_rows_from_sheet("Test #6", run_spreadsheet_id)
 
         for task in all_tasks:
             if task.task_id in mp4_task_ids:
