@@ -84,6 +84,10 @@ pytest
 # Только unit-тесты
 pytest tests/unit/
 
+# Acceptance-тесты (ВСЕГДА через скрипт с автоматическим reset)
+scripts\acceptance.cmd   # Windows
+scripts/acceptance.sh    # Linux/macOS
+
 # Отдельный тест-файл
 pytest tests/unit/domain/test_publish_service.py
 
@@ -93,6 +97,12 @@ pytest --cov=domain --cov=adapters --cov=app
 # Verbose
 pytest -v
 ```
+
+**КРИТИЧНО для acceptance тестов:**
+- НЕ запускай `pytest -m acceptance` напрямую
+- Используй ТОЛЬКО `scripts/acceptance.cmd` или `scripts/acceptance.sh`
+- Эти скрипты автоматически выполняют reset spreadsheet перед тестами
+- Гарантирует чистое состояние данных
 
 ## Configuration
 
