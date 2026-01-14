@@ -22,6 +22,18 @@ class PrivacyStatus(str, Enum):
     PRIVATE = "private"
 
 
+class MediaStage(str, Enum):
+    """Media file workflow stage."""
+    IN_PROGRESS = "IN_PROGRESS"
+    UPLOADED = "UPLOADED"
+
+
+class TaskOutcome(str, Enum):
+    """Task processing outcome."""
+    SUCCESS = "SUCCESS"
+    FAIL = "FAIL"
+
+
 @dataclass
 class VideoTask:
     """
