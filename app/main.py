@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
-from adapters.local_storage import LocalFileStorage
+from adapters.local_media_file_store import LocalMediaFileStore
 from adapters.youtube_backend import YouTubeApiBackend
 from domain.services import PublishService
 
@@ -51,10 +51,10 @@ def create_publish_service(dry_run: bool = False, max_retries: int = 3) -> Publi
     logger = logging.getLogger(__name__)
 
     try:
-        # Initialize storage
+        # Initialize media file store
         storage_base_path = os.getenv("STORAGE_BASE_PATH")
-        storage = LocalFileStorage(base_path=storage_base_path)
-        logger.debug(f"Storage initialized: base_path={storage_base_path or 'current directory'}")
+        media_file_store = LocalMediaFileStore(base_path=storage_base_path)
+        logger.debug(f"Media file store initialized: base_path={storage_base_path or 'current directory'}")
 
         # Initialize metadata repository
         metadata_repo = GoogleSheetsMetadataRepository()
@@ -71,7 +71,7 @@ def create_publish_service(dry_run: bool = False, max_retries: int = 3) -> Publi
         # Create publish service
         service = PublishService(
             metadata_repo=metadata_repo,
-            storage=storage,
+            media_file_store=media_file_store,
             video_backend=video_backend,
             max_retries=max_retries,
             dry_run=dry_run,
