@@ -4,8 +4,9 @@ from datetime import datetime
 from typing import Optional
 
 from domain.models import PublishResult, TaskStatus, VideoTask
+from ports.adapter_error import AdapterError
+from ports.media_file_store import MediaFileStore
 from ports.metadata_repository import MetadataRepository
-from ports.storage import Storage, StorageError
 from ports.video_backend import RetryableError, VideoBackend, VideoBackendError
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ class PublishService:
     def __init__(
         self,
         metadata_repo: MetadataRepository,
-        storage: Storage,
+        media_file_store: MediaFileStore,
         video_backend: VideoBackend,
         max_retries: int = 3,
         dry_run: bool = False,
@@ -37,13 +38,13 @@ class PublishService:
 
         Args:
             metadata_repo: Repository for task metadata.
-            storage: Storage for accessing video files.
+            media_file_store: Store for accessing and managing video files.
             video_backend: Backend for uploading videos.
             max_retries: Maximum retry attempts for retryable errors.
             dry_run: If True, validate but don't actually upload.
         """
         self.metadata_repo = metadata_repo
-        self.storage = storage
+        self.media_file_store = media_file_store
         self.video_backend = video_backend
         self.max_retries = max_retries
         self.dry_run = dry_run
@@ -114,16 +115,16 @@ class PublishService:
 
         # Validate video file exists
         try:
-            if not self.storage.exists(task.video_file_path):
+            if not self.media_file_store.exists(task.video_file_path):
                 error_msg = f"Video file not found: {task.video_file_path}"
                 logger.error(f"Task {task.task_id}: {error_msg}")
                 self._mark_failed(task, error_msg)
                 return "failed"
 
-            video_path = self.storage.get_path(task.video_file_path)
+            video_path = self.media_file_store.get_path(task.video_file_path)
             logger.debug(f"Task {task.task_id}: video file validated at {video_path}")
 
-        except StorageError as e:
+        except AdapterError as e:
             error_msg = f"Storage error: {str(e)}"
             logger.error(f"Task {task.task_id}: {error_msg}")
             self._mark_failed(task, error_msg)
@@ -240,13 +241,13 @@ class PublishService:
             video_id: YouTube video ID.
         """
         try:
-            if not self.storage.exists(task.thumbnail_path):
+            if not self.media_file_store.exists(task.thumbnail_path):
                 logger.warning(
                     f"Task {task.task_id}: thumbnail file not found: {task.thumbnail_path}"
                 )
                 return
 
-            thumbnail_path = self.storage.get_path(task.thumbnail_path)
+            thumbnail_path = self.media_file_store.get_path(task.thumbnail_path)
             logger.info(f"Task {task.task_id}: uploading thumbnail from {thumbnail_path}")
 
             success = self.video_backend.upload_thumbnail(video_id, thumbnail_path)
