@@ -2,6 +2,7 @@
 import os
 from datetime import datetime
 from typing import List
+from unittest.mock import Mock
 
 import pytest
 from google.oauth2 import service_account
@@ -9,6 +10,9 @@ from googleapiclient.discovery import build
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
 from domain.models import TaskStatus, VideoTask, PrivacyStatus
+from domain.services import PublishService
+from ports.media_file_store import MediaFileStore
+from tests.acceptance.fake_youtube_backend import FakeYouTubeBackend, FakeYouTubeMode
 
 
 @pytest.fixture
@@ -23,6 +27,42 @@ def repo_for_sheet(sheet_name: str, spreadsheet_id: str) -> GoogleSheetsMetadata
         spreadsheet_id=spreadsheet_id,
         range_name=f"{sheet_name}!A:Z",
         credentials_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+    )
+
+
+def create_publish_service_for_test(
+    sheet_name: str,
+    spreadsheet_id: str,
+    fake_youtube_mode: FakeYouTubeMode = FakeYouTubeMode.SUCCESS_PUBLIC,
+) -> PublishService:
+    """
+    Create PublishService for acceptance tests with fake backend.
+
+    Args:
+        sheet_name: Sheet name for metadata repository.
+        spreadsheet_id: Google Sheets document ID.
+        fake_youtube_mode: Mode for fake YouTube backend.
+
+    Returns:
+        PublishService configured for acceptance testing.
+    """
+    from pathlib import Path
+
+    metadata_repo = repo_for_sheet(sheet_name, spreadsheet_id)
+
+    # Mock MediaFileStore that always returns files exist
+    mock_media_file_store = Mock(spec=MediaFileStore)
+    mock_media_file_store.exists.return_value = True
+    mock_media_file_store.get_path.side_effect = lambda path: Path(path)
+
+    fake_backend = FakeYouTubeBackend(mode=fake_youtube_mode)
+
+    return PublishService(
+        metadata_repo=metadata_repo,
+        media_file_store=mock_media_file_store,
+        video_backend=fake_backend,
+        max_retries=1,
+        dry_run=False,
     )
 
 
@@ -221,93 +261,157 @@ class TestSheetsWriteShuffledColumns:
 
 @pytest.mark.acceptance
 class TestSheetsBulkOperations:
-    """Test #5: Bulk read READY + bulk update."""
+    """Test #5: Bulk process READY tasks through PublishService."""
 
     def test_bulk_read_and_update(self, runtime_spreadsheet_id):
-        """Read 6 READY tasks and update all to SCHEDULED."""
+        """
+        Process 6 READY tasks through real PublishService flow.
+
+        Tests full flow: read READY -> fake upload -> update sheet with status/video_id.
+        No manual status painting; PublishService handles everything.
+        Sheet may contain mixed extensions; outcomes determined by FakeYouTubeBackend.
+        """
         repo = repo_for_sheet("Test #5", runtime_spreadsheet_id)
 
-        tasks = repo.get_ready_tasks()
-        assert len(tasks) == 6, f"Expected 6 READY tasks, got {len(tasks)}"
+        # Verify initial state: 6 READY tasks
+        tasks_before = repo.get_ready_tasks()
+        assert len(tasks_before) == 6, f"Expected 6 READY tasks, got {len(tasks_before)}"
 
         expected_task_ids = {"1", "2", "3", "4", "5", "6"}
-        actual_task_ids = {task.task_id for task in tasks}
+        actual_task_ids = {task.task_id for task in tasks_before}
         assert actual_task_ids == expected_task_ids
 
-        for task in tasks:
+        for task in tasks_before:
             assert task.status == TaskStatus.READY
-            assert task.video_file_path, "video_file_path should not be empty"
-            assert task.title.startswith("Test "), f"Task {task.task_id}: title should start with 'Test '"
-            assert task.description.startswith("Test "), f"Task {task.task_id}: description should start with 'Test '"
-            assert task.publish_at == datetime(2025, 12, 27, 22, 30, 0), (
-                f"Task {task.task_id}: expected publish_at=2025-12-27 22:30:00, got {task.publish_at}"
-            )
 
-        for task in tasks:
-            repo.update_task_status(
-                task,
-                status=TaskStatus.SCHEDULED.value,
-                youtube_video_id=f"tAsKiD{task.task_id}",
-            )
+        # Count expected outcomes by extension
+        mp4_or_mov_tasks = [
+            task for task in tasks_before
+            if task.video_file_path.endswith(('.mp4', '.mov'))
+        ]
+        other_tasks = [
+            task for task in tasks_before
+            if not task.video_file_path.endswith(('.mp4', '.mov'))
+        ]
 
+        # Process through PublishService (real flow)
+        service = create_publish_service_for_test("Test #5", runtime_spreadsheet_id)
+        stats = service.publish_all_ready_tasks()
+
+        # Verify processing stats
+        assert stats["processed"] == 6, f"Expected 6 processed, got {stats['processed']}"
+        assert stats["succeeded"] == len(mp4_or_mov_tasks), (
+            f"Expected {len(mp4_or_mov_tasks)} succeeded, got {stats['succeeded']}"
+        )
+        assert stats["failed"] == len(other_tasks), (
+            f"Expected {len(other_tasks)} failed, got {stats['failed']}"
+        )
+
+        # Verify no READY tasks remain
         tasks_after = repo.get_ready_tasks()
-        assert len(tasks_after) == 0, "All tasks should be SCHEDULED after bulk update"
+        assert len(tasks_after) == 0, "All READY tasks should be processed"
+
+        # Verify outcomes for each task
+        all_tasks = read_all_rows_from_sheet("Test #5", runtime_spreadsheet_id)
+        mp4_or_mov_task_ids = {task.task_id for task in mp4_or_mov_tasks}
+        other_task_ids = {task.task_id for task in other_tasks}
+
+        for task in all_tasks:
+            if task.task_id in mp4_or_mov_task_ids:
+                # .mp4/.mov files should succeed
+                assert task.status == TaskStatus.SCHEDULED, (
+                    f"Task {task.task_id}: expected SCHEDULED, got {task.status}"
+                )
+                assert task.youtube_video_id, f"Task {task.task_id}: youtube_video_id should not be empty"
+                assert task.youtube_video_id.startswith("fake_"), (
+                    f"Task {task.task_id}: expected fake video_id, got {task.youtube_video_id}"
+                )
+            elif task.task_id in other_task_ids:
+                # Other extensions should fail
+                assert task.status == TaskStatus.FAILED, (
+                    f"Task {task.task_id}: expected FAILED, got {task.status}"
+                )
+                assert task.error_message == "Incorrect video format", (
+                    f"Task {task.task_id}: expected error 'Incorrect video format', got '{task.error_message}'"
+                )
 
 
 @pytest.mark.acceptance
 class TestSheetsConditionalUpdate:
-    """Test #6: Read all statuses + conditional update based on file extension."""
+    """Test #6: Process mixed extensions through PublishService."""
 
     def test_conditional_update_by_extension(self, runtime_spreadsheet_id):
         """
-        Read all rows (not just READY), update based on extension:
-        - .mp4 => SCHEDULED + youtube_video_id
-        - other => FAILED + error message
+        Process READY tasks with mixed extensions through PublishService.
 
-        Test logic is extension-based, independent of row order.
-        Shuffled columns in Test #6 sheet.
+        Tests that:
+        - .mp4 files => SCHEDULED + youtube_video_id (uploader accepts)
+        - other extensions => FAILED + error_message (uploader rejects)
+
+        Extension validation logic is in FakeYouTubeBackend, NOT in test.
+        Test only verifies outcomes. Shuffled columns in Test #6 sheet.
         """
         repo = repo_for_sheet("Test #6", runtime_spreadsheet_id)
 
-        all_tasks_before = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
-        assert len(all_tasks_before) > 0, "Sheet should contain tasks"
+        # Verify initial state
+        tasks_before = repo.get_ready_tasks()
+        assert len(tasks_before) > 0, "Sheet should contain READY tasks"
 
-        mp4_task_ids = set()
-        non_mp4_task_ids = set()
+        # Count expected outcomes by extension
+        mp4_task_ids = {
+            task.task_id for task in tasks_before
+            if task.video_file_path.endswith(".mp4")
+        }
+        non_mp4_task_ids = {
+            task.task_id for task in tasks_before
+            if not task.video_file_path.endswith(".mp4")
+        }
 
-        for task in all_tasks_before:
-            if task.video_file_path.endswith(".mp4"):
-                mp4_task_ids.add(task.task_id)
-                repo.update_task_status(
-                    task,
-                    status=TaskStatus.SCHEDULED.value,
-                    youtube_video_id=f"tAsKiD{task.task_id}",
-                )
-            else:
-                non_mp4_task_ids.add(task.task_id)
-                repo.update_task_status(
-                    task,
-                    status=TaskStatus.FAILED.value,
-                    error_message="Incorrect video format",
-                )
+        assert len(mp4_task_ids) > 0, "Should have at least one .mp4 task"
+        assert len(non_mp4_task_ids) > 0, "Should have at least one non-.mp4 task"
 
-        all_tasks_after = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
-        assert len(all_tasks_after) == len(all_tasks_before), "Row count should not change"
+        # Process through PublishService (real flow)
+        service = create_publish_service_for_test("Test #6", runtime_spreadsheet_id)
+        stats = service.publish_all_ready_tasks()
 
-        for task in all_tasks_after:
+        # Verify processing stats
+        expected_succeeded = len(mp4_task_ids)
+        expected_failed = len(non_mp4_task_ids)
+        assert stats["succeeded"] == expected_succeeded, (
+            f"Expected {expected_succeeded} succeeded, got {stats['succeeded']}"
+        )
+        assert stats["failed"] == expected_failed, (
+            f"Expected {expected_failed} failed, got {stats['failed']}"
+        )
+
+        # Verify no READY tasks remain
+        tasks_after = repo.get_ready_tasks()
+        assert len(tasks_after) == 0, "All READY tasks should be processed"
+
+        # Verify outcomes for each task
+        all_tasks = read_all_rows_from_sheet("Test #6", runtime_spreadsheet_id)
+
+        for task in all_tasks:
             if task.task_id in mp4_task_ids:
+                # .mp4 files should succeed
                 assert task.status == TaskStatus.SCHEDULED, (
-                    f"Task {task.task_id} (.mp4): expected status SCHEDULED, got {task.status}"
+                    f"Task {task.task_id} (.mp4): expected SCHEDULED, got {task.status}"
                 )
-                assert task.youtube_video_id == f"tAsKiD{task.task_id}", (
-                    f"Task {task.task_id} (.mp4): expected youtube_video_id=tAsKiD{task.task_id}, "
-                    f"got {task.youtube_video_id}"
+                assert task.youtube_video_id, (
+                    f"Task {task.task_id} (.mp4): youtube_video_id should not be empty"
+                )
+                assert not task.error_message, (
+                    f"Task {task.task_id} (.mp4): error_message should be empty"
                 )
             elif task.task_id in non_mp4_task_ids:
+                # Non-.mp4 files should fail
                 assert task.status == TaskStatus.FAILED, (
-                    f"Task {task.task_id} (non-.mp4): expected status FAILED, got {task.status}"
+                    f"Task {task.task_id} (non-.mp4): expected FAILED, got {task.status}"
                 )
                 assert task.error_message == "Incorrect video format", (
-                    f"Task {task.task_id} (non-.mp4): expected error_message='Incorrect video format', "
+                    f"Task {task.task_id} (non-.mp4): expected error 'Incorrect video format', "
                     f"got '{task.error_message}'"
+                )
+                assert not task.youtube_video_id, (
+                    f"Task {task.task_id} (non-.mp4): youtube_video_id should be empty"
                 )
