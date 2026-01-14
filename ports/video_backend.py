@@ -1,6 +1,5 @@
 """Interface for video publishing backend (e.g., YouTube API)."""
 from abc import ABC, abstractmethod
-from pathlib import Path
 
 from domain.models import PublishResult, VideoTask
 
@@ -13,13 +12,13 @@ class VideoBackend(ABC):
     """
 
     @abstractmethod
-    def publish_video(self, task: VideoTask, video_path: Path) -> PublishResult:
+    def publish_video(self, task: VideoTask, media_ref: str) -> PublishResult:
         """
         Upload and schedule video for publishing.
 
         Args:
             task: Video task with metadata.
-            video_path: Absolute path to video file.
+            media_ref: Abstract media reference (e.g., file path, S3 key, URL).
 
         Returns:
             PublishResult with upload status and video ID.
@@ -31,13 +30,13 @@ class VideoBackend(ABC):
         pass
 
     @abstractmethod
-    def upload_thumbnail(self, video_id: str, thumbnail_path: Path) -> bool:
+    def upload_thumbnail(self, video_id: str, thumbnail_ref: str) -> bool:
         """
         Upload custom thumbnail for a video.
 
         Args:
             video_id: YouTube video ID.
-            thumbnail_path: Absolute path to thumbnail image.
+            thumbnail_ref: Abstract thumbnail reference (e.g., file path, S3 key, URL).
 
         Returns:
             True if thumbnail uploaded successfully.
