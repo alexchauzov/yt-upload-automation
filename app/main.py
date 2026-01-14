@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
 from adapters.local_media_file_store import LocalMediaFileStore
-from adapters.youtube_backend import YouTubeApiBackend
 from domain.services import PublishService
 
 
@@ -65,6 +64,8 @@ def create_publish_service(dry_run: bool = False, max_retries: int = 3) -> Publi
             video_backend = None  # Not used in dry-run
             logger.info("DRY RUN mode enabled - will validate only, no uploads")
         else:
+            # Lazy import to avoid requiring google-auth-oauthlib at module import time
+            from adapters.youtube_backend import YouTubeApiBackend
             video_backend = YouTubeApiBackend()
             logger.debug("Video backend initialized: YouTube API")
 
