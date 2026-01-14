@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 
 from domain.models import PublishResult, TaskStatus, VideoTask
-from ports.video_backend import PermanentError, RetryableError, VideoBackend
+from ports.video_backend import PermanentError, VideoBackend
 
 
 class FakeYouTubeMode(Enum):
@@ -12,8 +12,7 @@ class FakeYouTubeMode(Enum):
 
     SUCCESS_PUBLIC = "success_public"
     SUCCESS_SCHEDULED = "success_scheduled"
-    FAIL_RETRYABLE = "fail_retryable"
-    FAIL_PERMANENT = "fail_permanent"
+    FAIL = "fail"
 
 
 class FakeYouTubeBackend(VideoBackend):
@@ -49,8 +48,7 @@ class FakeYouTubeBackend(VideoBackend):
             PublishResult with outcome based on mode.
 
         Raises:
-            PermanentError: If file not found/readable, or in FAIL_PERMANENT mode.
-            RetryableError: In FAIL_RETRYABLE mode.
+            PermanentError: If file not found/readable, or in FAIL mode.
         """
         self.call_count += 1
 
@@ -66,11 +64,8 @@ class FakeYouTubeBackend(VideoBackend):
         except Exception as e:
             raise PermanentError(f"Cannot read video file: {e}")
 
-        if self.mode == FakeYouTubeMode.FAIL_RETRYABLE:
-            raise RetryableError("Rate limit exceeded (fake)")
-
-        if self.mode == FakeYouTubeMode.FAIL_PERMANENT:
-            raise PermanentError("Invalid video format (fake)")
+        if self.mode == FakeYouTubeMode.FAIL:
+            raise PermanentError("Upload failed (fake): Invalid video format")
 
         video_id = f"fake_{task.task_id}_{self.call_count}"
         self.uploaded_videos[video_id] = (task, video_path)

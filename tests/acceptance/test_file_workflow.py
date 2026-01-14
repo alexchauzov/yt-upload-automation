@@ -112,7 +112,7 @@ class TestFileWorkflowA3:
             status=TaskStatus.READY,
         )
 
-        fake_backend = FakeYouTubeBackend(mode=FakeYouTubeMode.FAIL_PERMANENT)
+        fake_backend = FakeYouTubeBackend(mode=FakeYouTubeMode.FAIL)
 
         assert not video_file.exists(), "File should be removed from IN_PROGRESS"
 
