@@ -1,18 +1,18 @@
-"""Local filesystem media file store adapter."""
+"""Local filesystem media store adapter."""
 from pathlib import Path
 from typing import Union
 
 from domain.models import MediaStage
 from ports.adapter_error import AdapterError
-from ports.media_file_store import MediaFileStore
+from ports.media_store import MediaStore
 
 
-class LocalMediaFileStore(MediaFileStore):
+class LocalMediaStore(MediaStore):
     """
-    Local filesystem implementation of MediaFileStore.
+    Local filesystem implementation of MediaStore.
 
     Unified adapter handling both validation and lifecycle management.
-    Manages video file storage and transitions between workflow stages.
+    Manages media file storage and transitions between workflow stages.
     """
 
     def __init__(
@@ -22,7 +22,7 @@ class LocalMediaFileStore(MediaFileStore):
         uploaded_dir: Union[str, Path, None] = None,
     ):
         """
-        Initialize local media file store.
+        Initialize local media store.
 
         Args:
             base_path: Optional base directory for resolving relative paths.
@@ -45,38 +45,38 @@ class LocalMediaFileStore(MediaFileStore):
         for stage_dir in self.stage_dirs.values():
             stage_dir.mkdir(parents=True, exist_ok=True)
 
-    def exists(self, path: str) -> bool:
-        """Check if file exists."""
+    def exists(self, ref: str) -> bool:
+        """Check if media reference exists."""
         try:
-            resolved_path = self._resolve_path(path)
+            resolved_path = self._resolve_path(ref)
             return resolved_path.exists() and resolved_path.is_file()
         except Exception:
             return False
 
-    def get_path(self, path: str) -> Path:
+    def get_path(self, ref: str) -> Path:
         """
-        Resolve and validate file path.
+        Resolve and validate media reference to local Path.
 
         Returns:
             Absolute Path object.
 
         Raises:
-            AdapterError: If path is invalid or file doesn't exist.
+            AdapterError: If reference is invalid or media doesn't exist.
         """
         try:
-            resolved_path = self._resolve_path(path)
+            resolved_path = self._resolve_path(ref)
 
             if not resolved_path.exists():
                 raise AdapterError(
                     code="FILE_NOT_FOUND",
-                    message=f"File does not exist: {path}",
+                    message=f"Media does not exist: {ref}",
                     details={"path": str(resolved_path)}
                 )
 
             if not resolved_path.is_file():
                 raise AdapterError(
                     code="NOT_A_FILE",
-                    message=f"Path is not a file: {path}",
+                    message=f"Path is not a file: {ref}",
                     details={"path": str(resolved_path)}
                 )
 
@@ -87,41 +87,41 @@ class LocalMediaFileStore(MediaFileStore):
         except Exception as e:
             raise AdapterError(
                 code="PATH_RESOLUTION_FAILED",
-                message=f"Invalid path: {path}",
+                message=f"Invalid media reference: {ref}",
                 details={"error": str(e)}
             ) from e
 
-    def get_size(self, path: str) -> int:
+    def get_size(self, ref: str) -> int:
         """
-        Get file size in bytes.
+        Get media size in bytes.
 
         Raises:
-            AdapterError: If file doesn't exist or can't be accessed.
+            AdapterError: If media doesn't exist or can't be accessed.
         """
         try:
-            resolved_path = self.get_path(path)
+            resolved_path = self.get_path(ref)
             return resolved_path.stat().st_size
         except AdapterError:
             raise
         except Exception as e:
             raise AdapterError(
                 code="SIZE_READ_FAILED",
-                message=f"Cannot get size for: {path}",
+                message=f"Cannot get size for: {ref}",
                 details={"error": str(e)}
             ) from e
 
     def transition(self, media_ref: str, to_stage: MediaStage) -> str:
         """
-        Transition media file to a new workflow stage.
+        Transition media to a new workflow stage.
 
         Moves file from current location to the directory mapped to target stage.
 
         Args:
-            media_ref: Current file path (absolute or relative).
+            media_ref: Current media reference (absolute or relative file path).
             to_stage: Target workflow stage.
 
         Returns:
-            New file path after transition.
+            New media reference after transition.
 
         Raises:
             AdapterError: If transition fails.
@@ -138,7 +138,7 @@ class LocalMediaFileStore(MediaFileStore):
         if not source_path.exists():
             raise AdapterError(
                 code="FILE_NOT_FOUND",
-                message=f"Source file not found: {media_ref}",
+                message=f"Source media not found: {media_ref}",
                 details={"source_path": str(source_path)}
             )
 
@@ -187,17 +187,17 @@ class LocalMediaFileStore(MediaFileStore):
 
         return str(dest_path)
 
-    def _resolve_path(self, path: str) -> Path:
+    def _resolve_path(self, ref: str) -> Path:
         """
-        Resolve path to absolute Path object.
+        Resolve media reference to absolute Path object.
 
         Args:
-            path: Relative or absolute file path.
+            ref: Relative or absolute file path.
 
         Returns:
             Absolute Path object.
         """
-        p = Path(path)
+        p = Path(ref)
 
         if p.is_absolute():
             return p

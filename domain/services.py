@@ -3,11 +3,13 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from ports.media_uploader import MediaUploader
+
 from domain.models import MediaStage, PublishResult, TaskStatus, VideoTask
 from ports.adapter_error import AdapterError
-from ports.media_file_store import MediaFileStore
+from ports.media_store import MediaStore
+from ports.media_uploader import MediaUploader, MediaUploaderError, RetryableError
 from ports.metadata_repository import MetadataRepository
-from ports.video_backend import RetryableError, VideoBackend, VideoBackendError
 
 logger = logging.getLogger(__name__)
 
@@ -18,18 +20,18 @@ class PublishService:
 
     Responsibilities:
     - Fetch ready tasks from metadata repository
-    - Validate video files exist
-    - Upload videos to backend (e.g., YouTube)
+    - Validate media files exist
+    - Upload media to platforms (e.g., YouTube)
     - Update task status and metadata
     - Handle retries for temporary failures
-    - Ensure idempotency (skip already uploaded videos)
+    - Ensure idempotency (skip already uploaded media)
     """
 
     def __init__(
         self,
         metadata_repo: MetadataRepository,
-        media_file_store: MediaFileStore,
-        video_backend: VideoBackend,
+        media_store: MediaStore,
+        media_uploader: Optional[MediaUploader],
         max_retries: int = 3,
         dry_run: bool = False,
     ):
@@ -38,14 +40,14 @@ class PublishService:
 
         Args:
             metadata_repo: Repository for task metadata.
-            media_file_store: Store for accessing and managing video files.
-            video_backend: Backend for uploading videos.
+            media_store: Store for accessing and managing media files.
+            media_uploader: Uploader for publishing media to platforms.
             max_retries: Maximum retry attempts for retryable errors.
             dry_run: If True, validate but don't actually upload.
         """
         self.metadata_repo = metadata_repo
-        self.media_file_store = media_file_store
-        self.video_backend = video_backend
+        self.media_store = media_store
+        self.media_uploader = media_uploader
         self.max_retries = max_retries
         self.dry_run = dry_run
 
@@ -113,16 +115,15 @@ class PublishService:
             )
             return "skipped"
 
-        # Validate video file exists
+        # Validate media file exists
         try:
-            if not self.media_file_store.exists(task.video_file_path):
-                error_msg = f"Video file not found: {task.video_file_path}"
+            if not self.media_store.exists(task.video_file_path):
+                error_msg = f"Media file not found: {task.video_file_path}"
                 logger.error(f"Task {task.task_id}: {error_msg}")
                 self._mark_failed(task, error_msg)
                 return "failed"
 
-            video_path = self.media_file_store.get_path(task.video_file_path)
-            logger.debug(f"Task {task.task_id}: video file validated at {video_path}")
+            logger.debug(f"Task {task.task_id}: media file validated at {task.video_file_path}")
 
         except AdapterError as e:
             error_msg = f"Storage error: {str(e)}"
@@ -132,11 +133,10 @@ class PublishService:
 
         # Transition media to IN_PROGRESS stage
         try:
-            new_media_ref = self.media_file_store.transition(
+            new_media_ref = self.media_store.transition(
                 task.video_file_path, MediaStage.IN_PROGRESS
             )
             task.video_file_path = new_media_ref
-            video_path = self.media_file_store.get_path(new_media_ref)
             logger.info(
                 f"Task {task.task_id}: media transitioned to IN_PROGRESS at {new_media_ref}"
             )
@@ -147,7 +147,7 @@ class PublishService:
             return "failed"
 
         # Dry run mode: validate only
-        if self.dry_run:
+        if self.dry_run or self.media_uploader is None:
             logger.info(f"Task {task.task_id}: DRY RUN mode - validation passed")
             self.metadata_repo.update_task_status(task, TaskStatus.DRY_RUN_OK.value)
             return "success"
@@ -160,7 +160,7 @@ class PublishService:
             logger.warning(f"Task {task.task_id}: failed to update status to UPLOADING: {e}")
 
         # Attempt upload with retry logic
-        result = self._upload_with_retry(task, video_path)
+        result = self._upload_with_retry(task, new_media_ref)
 
         if result.success:
             # Upload thumbnail if provided
@@ -183,13 +183,13 @@ class PublishService:
             self._mark_failed(task, result.error_message or "Unknown error")
             return "failed"
 
-    def _upload_with_retry(self, task: VideoTask, video_path) -> PublishResult:
+    def _upload_with_retry(self, task: VideoTask, media_ref: str) -> PublishResult:
         """
-        Upload video with retry logic for temporary failures.
+        Upload media with retry logic for temporary failures.
 
         Args:
-            task: Video task.
-            video_path: Path to video file.
+            task: Media task.
+            media_ref: Media reference (path, URL, etc.).
 
         Returns:
             PublishResult with upload outcome.
@@ -204,7 +204,7 @@ class PublishService:
                 self.metadata_repo.increment_attempts(task)
 
                 # Attempt upload
-                result = self.video_backend.publish_video(task, video_path)
+                result = self.media_uploader.publish_media(task, media_ref)
 
                 if result.success:
                     logger.info(f"Task {task.task_id}: upload succeeded on attempt {attempt}")
@@ -214,7 +214,7 @@ class PublishService:
                     logger.warning(
                         f"Task {task.task_id}: upload failed on attempt {attempt}: {last_error}"
                     )
-                    # Don't retry if backend returned unsuccessful result
+                    # Don't retry if uploader returned unsuccessful result
                     break
 
             except RetryableError as e:
@@ -230,7 +230,7 @@ class PublishService:
                     logger.error(f"Task {task.task_id}: max retries reached")
                     break
 
-            except VideoBackendError as e:
+            except MediaUploaderError as e:
                 # Permanent error - don't retry
                 last_error = str(e)
                 logger.error(f"Task {task.task_id}: permanent error, not retrying: {last_error}")
@@ -250,23 +250,22 @@ class PublishService:
 
     def _upload_thumbnail(self, task: VideoTask, video_id: str) -> None:
         """
-        Upload thumbnail for a video (best effort).
+        Upload thumbnail for a media (best effort).
 
         Args:
-            task: Video task.
-            video_id: YouTube video ID.
+            task: Media task.
+            video_id: Platform media ID (e.g., YouTube video ID).
         """
         try:
-            if not self.media_file_store.exists(task.thumbnail_path):
+            if not self.media_store.exists(task.thumbnail_path):
                 logger.warning(
                     f"Task {task.task_id}: thumbnail file not found: {task.thumbnail_path}"
                 )
                 return
 
-            thumbnail_path = self.media_file_store.get_path(task.thumbnail_path)
-            logger.info(f"Task {task.task_id}: uploading thumbnail from {thumbnail_path}")
+            logger.info(f"Task {task.task_id}: uploading thumbnail from {task.thumbnail_path}")
 
-            success = self.video_backend.upload_thumbnail(video_id, thumbnail_path)
+            success = self.media_uploader.upload_thumbnail(video_id, task.thumbnail_path)
 
             if success:
                 logger.info(f"Task {task.task_id}: thumbnail uploaded successfully")

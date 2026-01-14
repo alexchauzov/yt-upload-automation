@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
-from adapters.local_media_file_store import LocalMediaFileStore
+from adapters.local_media_store import LocalMediaStore
 from domain.services import PublishService
 
 
@@ -50,30 +50,30 @@ def create_publish_service(dry_run: bool = False, max_retries: int = 3) -> Publi
     logger = logging.getLogger(__name__)
 
     try:
-        # Initialize media file store
+        # Initialize media store
         storage_base_path = os.getenv("STORAGE_BASE_PATH")
-        media_file_store = LocalMediaFileStore(base_path=storage_base_path)
-        logger.debug(f"Media file store initialized: base_path={storage_base_path or 'current directory'}")
+        media_store = LocalMediaStore(base_path=storage_base_path)
+        logger.debug(f"Media store initialized: base_path={storage_base_path or 'current directory'}")
 
         # Initialize metadata repository
         metadata_repo = GoogleSheetsMetadataRepository()
         logger.debug("Metadata repository initialized: Google Sheets")
 
-        # Initialize video backend (skip in dry-run mode to avoid OAuth)
+        # Initialize media uploader (skip in dry-run mode to avoid OAuth)
         if dry_run:
-            video_backend = None  # Not used in dry-run
+            media_uploader = None
             logger.info("DRY RUN mode enabled - will validate only, no uploads")
         else:
             # Lazy import to avoid requiring google-auth-oauthlib at module import time
-            from adapters.youtube_backend import YouTubeApiBackend
-            video_backend = YouTubeApiBackend()
-            logger.debug("Video backend initialized: YouTube API")
+            from adapters.youtube_media_uploader import YouTubeMediaUploader
+            media_uploader = YouTubeMediaUploader(media_store=media_store)
+            logger.debug("Media uploader initialized: YouTube API")
 
         # Create publish service
         service = PublishService(
             metadata_repo=metadata_repo,
-            media_file_store=media_file_store,
-            video_backend=video_backend,
+            media_store=media_store,
+            media_uploader=media_uploader,
             max_retries=max_retries,
             dry_run=dry_run,
         )

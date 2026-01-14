@@ -1,25 +1,25 @@
-"""Unit tests for LocalMediaFileStore adapter."""
+"""Unit tests for LocalMediaStore adapter."""
 import pytest
 from pathlib import Path
 
-from adapters.local_media_file_store import LocalMediaFileStore
+from adapters.local_media_store import LocalMediaStore
 from domain.models import MediaStage
 from ports.adapter_error import AdapterError
 
 
 @pytest.mark.unit
-class TestLocalMediaFileStoreInit:
-    """Tests for LocalMediaFileStore initialization."""
+class TestLocalMediaStoreInit:
+    """Tests for LocalMediaStore initialization."""
 
     def test_init_creates_stage_directories(self, tmp_path):
-        """LocalMediaFileStore should create stage directories if they don't exist."""
+        """LocalMediaStore should create stage directories if they don't exist."""
         in_progress_dir = tmp_path / "new_in_progress"
         uploaded_dir = tmp_path / "new_uploaded"
 
         assert not in_progress_dir.exists()
         assert not uploaded_dir.exists()
 
-        store = LocalMediaFileStore(
+        store = LocalMediaStore(
             base_path=tmp_path,
             in_progress_dir=in_progress_dir,
             uploaded_dir=uploaded_dir,
@@ -31,20 +31,20 @@ class TestLocalMediaFileStoreInit:
         assert uploaded_dir.is_dir()
 
     def test_init_without_stage_dirs(self, tmp_path):
-        """LocalMediaFileStore can be initialized without stage directories for validation only."""
-        store = LocalMediaFileStore(base_path=tmp_path)
+        """LocalMediaStore can be initialized without stage directories for validation only."""
+        store = LocalMediaStore(base_path=tmp_path)
         assert store.base_path == tmp_path
         assert len(store.stage_dirs) == 0
 
 
 @pytest.mark.unit
-class TestLocalMediaFileStoreValidation:
+class TestLocalMediaStoreValidation:
     """Tests for validation operations (exists, get_path, get_size)."""
 
     @pytest.fixture
     def store(self, tmp_path):
-        """Create LocalMediaFileStore instance."""
-        return LocalMediaFileStore(base_path=tmp_path)
+        """Create LocalMediaStore instance."""
+        return LocalMediaStore(base_path=tmp_path)
 
     def test_exists_returns_true_for_existing_file(self, store, tmp_path):
         """exists() should return True for existing files."""
@@ -126,7 +126,7 @@ class TestLocalMediaFileStoreValidation:
 
 
 @pytest.mark.unit
-class TestLocalMediaFileStoreTransition:
+class TestLocalMediaStoreTransition:
     """Tests for workflow transition operations."""
 
     @pytest.fixture
@@ -142,8 +142,8 @@ class TestLocalMediaFileStoreTransition:
 
     @pytest.fixture
     def store(self, temp_dirs):
-        """Create LocalMediaFileStore instance with stage directories."""
-        return LocalMediaFileStore(
+        """Create LocalMediaStore instance with stage directories."""
+        return LocalMediaStore(
             base_path=temp_dirs["base"],
             in_progress_dir=temp_dirs["in_progress"],
             uploaded_dir=temp_dirs["uploaded"],
@@ -257,7 +257,7 @@ class TestLocalMediaFileStoreTransition:
 
     def test_transition_stage_not_configured(self, tmp_path):
         """transition() should raise AdapterError if stage directory not configured."""
-        store = LocalMediaFileStore(base_path=tmp_path)
+        store = LocalMediaStore(base_path=tmp_path)
         test_file = tmp_path / "test.mp4"
         test_file.write_text("content")
 
