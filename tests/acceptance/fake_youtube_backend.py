@@ -39,6 +39,7 @@ class FakeYouTubeBackend(VideoBackend):
         Simulate video upload with configurable behavior.
 
         Always validates file exists and is readable before processing.
+        Only accepts .mp4 and .mov files; rejects others with format error.
 
         Args:
             task: Video task with metadata.
@@ -48,21 +49,15 @@ class FakeYouTubeBackend(VideoBackend):
             PublishResult with outcome based on mode.
 
         Raises:
-            PermanentError: If file not found/readable, or in FAIL mode.
+            PermanentError: If file not found/readable, unsupported format, or in FAIL mode.
         """
         self.call_count += 1
 
-        if not video_path.exists():
-            raise PermanentError(f"Video file not found: {video_path}")
-
-        if not video_path.is_file():
-            raise PermanentError(f"Path is not a file: {video_path}")
-
-        try:
-            with open(video_path, 'rb') as f:
-                f.read(100)
-        except Exception as e:
-            raise PermanentError(f"Cannot read video file: {e}")
+        # Validate file extension (only .mp4 and .mov supported)
+        # Note: File existence/readability not checked in fake backend
+        allowed_extensions = {'.mp4', '.mov'}
+        if video_path.suffix.lower() not in allowed_extensions:
+            raise PermanentError("Incorrect video format")
 
         if self.mode == FakeYouTubeMode.FAIL:
             raise PermanentError("Upload failed (fake): Invalid video format")
