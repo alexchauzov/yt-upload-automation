@@ -3,7 +3,7 @@ import os
 import pytest
 from dotenv import load_dotenv
 
-from tests.acceptance.test_file_workflow_helpers import reset_workflow_fs
+from tests.acceptance.test_local_media_helpers import reset_workflow_fs
 
 load_dotenv()
 

@@ -1,4 +1,4 @@
-"""Helper utilities for file workflow acceptance tests."""
+"""Helper utilities for LocalMediaStore acceptance tests."""
 import os
 from pathlib import Path
 

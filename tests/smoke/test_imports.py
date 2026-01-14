@@ -11,15 +11,15 @@ def test_import_domain():
 @pytest.mark.smoke
 def test_import_adapters():
     import adapters.google_sheets_repository
-    import adapters.local_media_file_store
+    import adapters.local_media_store
     assert adapters.google_sheets_repository.GoogleSheetsMetadataRepository is not None
 
 
 @pytest.mark.smoke
 def test_import_ports():
     import ports.metadata_repository
-    import ports.video_backend
-    import ports.media_file_store
+    import ports.media_uploader
+    import ports.media_store
     assert ports.metadata_repository.MetadataRepository is not None
 
 

@@ -7,9 +7,9 @@ from unittest.mock import Mock, MagicMock, call
 from domain.models import VideoTask, TaskStatus, PrivacyStatus, PublishResult
 from domain.services import PublishService
 from ports.adapter_error import AdapterError
-from ports.media_file_store import MediaFileStore
+from ports.media_store import MediaStore
+from ports.media_uploader import MediaUploader, RetryableError, PermanentError
 from ports.metadata_repository import MetadataRepository
-from ports.video_backend import VideoBackend, RetryableError, PermanentError
 
 
 @pytest.fixture
@@ -19,18 +19,18 @@ def mock_metadata_repo():
 
 
 @pytest.fixture
-def mock_media_file_store():
-    """Mock media file store."""
-    mock = Mock(spec=MediaFileStore)
+def mock_media_store():
+    """Mock media store."""
+    mock = Mock(spec=MediaStore)
     # Default transition behavior: return same path with /in_progress/ prefix
-    mock.transition.side_effect = lambda path, stage: f"/in_progress{path}"
+    mock.transition.side_effect = lambda ref, stage: f"/in_progress{ref}"
     return mock
 
 
 @pytest.fixture
-def mock_video_backend():
-    """Mock video backend."""
-    return Mock(spec=VideoBackend)
+def mock_media_uploader():
+    """Mock media uploader."""
+    return Mock(spec=MediaUploader)
 
 
 @pytest.fixture
@@ -52,15 +52,14 @@ class TestPublishServiceHappyPath:
     """Test successful publishing scenarios."""
 
     def test_successful_publish(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
-        """Test successful video publishing."""
+        """Test successful media publishing."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = True
-        mock_media_file_store.get_path.return_value = Path("/videos/test.mp4")
+        mock_media_store.exists.return_value = True
 
-        mock_video_backend.publish_video.return_value = PublishResult(
+        mock_media_uploader.publish_media.return_value = PublishResult(
             success=True,
             video_id="abc123",
             status=TaskStatus.SCHEDULED,
@@ -69,8 +68,8 @@ class TestPublishServiceHappyPath:
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
         )
 
         # Act
@@ -84,8 +83,8 @@ class TestPublishServiceHappyPath:
 
         # Verify interactions
         mock_metadata_repo.get_ready_tasks.assert_called_once()
-        mock_media_file_store.exists.assert_called_with("/videos/test.mp4")
-        mock_video_backend.publish_video.assert_called_once()
+        mock_media_store.exists.assert_called_with("/videos/test.mp4")
+        mock_media_uploader.publish_media.assert_called_once()
         mock_metadata_repo.update_task_status.assert_called_with(
             sample_task,
             status=TaskStatus.SCHEDULED.value,
@@ -94,28 +93,26 @@ class TestPublishServiceHappyPath:
         mock_metadata_repo.increment_attempts.assert_called_once_with(sample_task)
 
     def test_successful_publish_with_thumbnail(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test publishing with thumbnail upload."""
         # Arrange
         sample_task.thumbnail_path = "/thumbnails/test.jpg"
 
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = True
-        # get_path called: initial validation, after transition, thumbnail
-        mock_media_file_store.get_path.side_effect = lambda path: Path(path)
+        mock_media_store.exists.return_value = True
 
-        mock_video_backend.publish_video.return_value = PublishResult(
+        mock_media_uploader.publish_media.return_value = PublishResult(
             success=True,
             video_id="abc123",
             status=TaskStatus.SCHEDULED,
         )
-        mock_video_backend.upload_thumbnail.return_value = True
+        mock_media_uploader.upload_thumbnail.return_value = True
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
         )
 
         # Act
@@ -123,8 +120,8 @@ class TestPublishServiceHappyPath:
 
         # Assert
         assert stats["succeeded"] == 1
-        mock_video_backend.upload_thumbnail.assert_called_once_with(
-            "abc123", Path("/thumbnails/test.jpg")
+        mock_media_uploader.upload_thumbnail.assert_called_once_with(
+            "abc123", "/thumbnails/test.jpg"
         )
 
 
@@ -133,7 +130,7 @@ class TestPublishServiceIdempotency:
     """Test idempotency - skip already uploaded tasks."""
 
     def test_skip_already_uploaded(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test that tasks with youtube_video_id are skipped."""
         # Arrange
@@ -142,8 +139,8 @@ class TestPublishServiceIdempotency:
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
         )
 
         # Act
@@ -155,8 +152,8 @@ class TestPublishServiceIdempotency:
         assert stats["succeeded"] == 0
 
         # Should not attempt upload
-        mock_video_backend.publish_video.assert_not_called()
-        mock_media_file_store.exists.assert_not_called()
+        mock_media_uploader.publish_media.assert_not_called()
+        mock_media_store.exists.assert_not_called()
 
 
 @pytest.mark.unit
@@ -164,17 +161,17 @@ class TestPublishServiceValidation:
     """Test validation errors."""
 
     def test_video_file_not_found(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
-        """Test handling of missing video file."""
+        """Test handling of missing media file."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = False
+        mock_media_store.exists.return_value = False
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
         )
 
         # Act
@@ -185,7 +182,7 @@ class TestPublishServiceValidation:
         assert stats["succeeded"] == 0
 
         # Should not attempt upload
-        mock_video_backend.publish_video.assert_not_called()
+        mock_media_uploader.publish_media.assert_not_called()
 
         # Should mark as failed
         mock_metadata_repo.update_task_status.assert_called_once()
@@ -194,20 +191,20 @@ class TestPublishServiceValidation:
         assert "not found" in call_args[1]["error_message"].lower()
 
     def test_storage_error(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test handling of storage errors."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.side_effect = AdapterError(
+        mock_media_store.exists.side_effect = AdapterError(
             code="STORAGE_UNAVAILABLE",
             message="Storage unavailable"
         )
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
         )
 
         # Act
@@ -215,7 +212,7 @@ class TestPublishServiceValidation:
 
         # Assert
         assert stats["failed"] == 1
-        mock_video_backend.publish_video.assert_not_called()
+        mock_media_uploader.publish_media.assert_not_called()
 
 
 @pytest.mark.unit
@@ -223,24 +220,23 @@ class TestPublishServiceRetry:
     """Test retry logic for retryable errors."""
 
     def test_retry_on_retryable_error_then_success(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test retry succeeds after temporary failure."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = True
-        mock_media_file_store.get_path.return_value = Path("/videos/test.mp4")
+        mock_media_store.exists.return_value = True
 
         # First attempt fails, second succeeds
-        mock_video_backend.publish_video.side_effect = [
+        mock_media_uploader.publish_media.side_effect = [
             RetryableError("Rate limit exceeded"),
             PublishResult(success=True, video_id="abc123", status=TaskStatus.SCHEDULED),
         ]
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
             max_retries=3,
         )
 
@@ -249,25 +245,24 @@ class TestPublishServiceRetry:
 
         # Assert
         assert stats["succeeded"] == 1
-        assert mock_video_backend.publish_video.call_count == 2
+        assert mock_media_uploader.publish_media.call_count == 2
         assert mock_metadata_repo.increment_attempts.call_count == 2
 
     def test_retry_exhausted(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test max retries exceeded."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = True
-        mock_media_file_store.get_path.return_value = Path("/videos/test.mp4")
+        mock_media_store.exists.return_value = True
 
         # All attempts fail
-        mock_video_backend.publish_video.side_effect = RetryableError("Network error")
+        mock_media_uploader.publish_media.side_effect = RetryableError("Network error")
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
             max_retries=3,
         )
 
@@ -277,7 +272,7 @@ class TestPublishServiceRetry:
         # Assert
         assert stats["failed"] == 1
         assert stats["succeeded"] == 0
-        assert mock_video_backend.publish_video.call_count == 3  # max_retries
+        assert mock_media_uploader.publish_media.call_count == 3  # max_retries
         assert mock_metadata_repo.increment_attempts.call_count == 3
 
         # Should mark as failed
@@ -285,21 +280,20 @@ class TestPublishServiceRetry:
         assert call_args[1]["status"] == TaskStatus.FAILED.value
 
     def test_no_retry_on_permanent_error(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test permanent errors don't trigger retries."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = True
-        mock_media_file_store.get_path.return_value = Path("/videos/test.mp4")
+        mock_media_store.exists.return_value = True
 
         # Permanent error
-        mock_video_backend.publish_video.side_effect = PermanentError("Invalid video format")
+        mock_media_uploader.publish_media.side_effect = PermanentError("Invalid media format")
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
             max_retries=3,
         )
 
@@ -308,7 +302,7 @@ class TestPublishServiceRetry:
 
         # Assert
         assert stats["failed"] == 1
-        assert mock_video_backend.publish_video.call_count == 1  # No retries
+        assert mock_media_uploader.publish_media.call_count == 1  # No retries
         assert mock_metadata_repo.increment_attempts.call_count == 1
 
 
@@ -317,18 +311,17 @@ class TestPublishServiceDryRun:
     """Test dry-run mode."""
 
     def test_dry_run_validates_only(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test dry-run mode validates but doesn't upload."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = True
-        mock_media_file_store.get_path.return_value = Path("/videos/test.mp4")
+        mock_media_store.exists.return_value = True
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
             dry_run=True,
         )
 
@@ -339,8 +332,8 @@ class TestPublishServiceDryRun:
         assert stats["succeeded"] == 1
 
         # Should NOT upload
-        mock_video_backend.publish_video.assert_not_called()
-        mock_video_backend.upload_thumbnail.assert_not_called()
+        mock_media_uploader.publish_media.assert_not_called()
+        mock_media_uploader.upload_thumbnail.assert_not_called()
 
         # Should update status to DRY_RUN_OK
         mock_metadata_repo.update_task_status.assert_called_once()
@@ -348,17 +341,17 @@ class TestPublishServiceDryRun:
         assert call_args[0][1] == TaskStatus.DRY_RUN_OK.value
 
     def test_dry_run_catches_validation_errors(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend, sample_task
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
     ):
         """Test dry-run mode still validates and catches errors."""
         # Arrange
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-        mock_media_file_store.exists.return_value = False  # File missing
+        mock_media_store.exists.return_value = False  # File missing
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
             dry_run=True,
         )
 
@@ -378,7 +371,7 @@ class TestPublishServiceMultipleTasks:
     """Test processing multiple tasks."""
 
     def test_multiple_tasks_mixed_results(
-        self, mock_metadata_repo, mock_media_file_store, mock_video_backend
+        self, mock_metadata_repo, mock_media_store, mock_media_uploader
     ):
         """Test processing multiple tasks with different outcomes."""
         # Arrange
@@ -403,17 +396,16 @@ class TestPublishServiceMultipleTasks:
         )
 
         mock_metadata_repo.get_ready_tasks.return_value = [task1, task2, task3]
-        mock_media_file_store.exists.side_effect = [True, False]  # task1 exists, task3 doesn't
-        mock_media_file_store.get_path.return_value = Path("/videos/video1.mp4")
+        mock_media_store.exists.side_effect = [True, False]  # task1 exists, task3 doesn't
 
-        mock_video_backend.publish_video.return_value = PublishResult(
+        mock_media_uploader.publish_media.return_value = PublishResult(
             success=True, video_id="abc123", status=TaskStatus.SCHEDULED
         )
 
         service = PublishService(
             metadata_repo=mock_metadata_repo,
-            media_file_store=mock_media_file_store,
-            video_backend=mock_video_backend,
+            media_store=mock_media_store,
+            media_uploader=mock_media_uploader,
         )
 
         # Act

@@ -1,4 +1,4 @@
-"""YouTube API backend implementation."""
+"""YouTube API media uploader implementation."""
 from __future__ import annotations
 
 import logging
@@ -16,16 +16,17 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 from domain.models import PrivacyStatus, PublishResult, TaskStatus, VideoTask
-from ports.media_file_store import MediaFileStore
-from ports.video_backend import PermanentError, RetryableError, VideoBackend, VideoBackendError
+from ports.media_store import MediaStore
+from ports.media_uploader import MediaUploader, MediaUploaderError, PermanentError, RetryableError
 
 logger = logging.getLogger(__name__)
 
-class YouTubeApiBackend(VideoBackend):
+class YouTubeMediaUploader(MediaUploader):
     """
-    YouTube Data API v3 backend implementation.
+    YouTube Data API v3 media uploader implementation.
 
-    Handles OAuth2 authentication, video upload, and scheduled publishing.
+    Handles OAuth2 authentication, media upload, and scheduled publishing.
+    Requires local file access, so uses MediaStore to resolve media references.
     """
 
     SCOPES = [
@@ -33,29 +34,28 @@ class YouTubeApiBackend(VideoBackend):
         "https://www.googleapis.com/auth/youtube",
     ]
 
-    # Retryable HTTP status codes
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
     def __init__(
         self,
-        media_file_store: MediaFileStore,
+        media_store: MediaStore,
         client_secrets_file: str | None = None,
         token_file: str | None = None,
     ):
         """
-        Initialize YouTube API backend.
+        Initialize YouTube API media uploader.
 
         Args:
-            media_file_store: Media file store for resolving media references to paths.
+            media_store: Media store for resolving media references to local paths.
             client_secrets_file: Path to OAuth2 client secrets JSON.
                        If None, uses YOUTUBE_CLIENT_SECRETS_FILE env var.
             token_file: Path to store OAuth2 token.
                        If None, uses YOUTUBE_TOKEN_FILE env var or default.
 
         Raises:
-            VideoBackendError: If initialization fails.
+            MediaUploaderError: If initialization fails.
         """
-        self.media_file_store = media_file_store
+        self.media_store = media_store
         self.client_secrets_file = client_secrets_file or os.getenv(
             "YOUTUBE_CLIENT_SECRETS_FILE", "client_secrets.json"
         )
@@ -63,13 +63,12 @@ class YouTubeApiBackend(VideoBackend):
             "YOUTUBE_TOKEN_FILE", ".data/youtube_token.pickle"
         )
 
-        # Ensure token directory exists
         Path(self.token_file).parent.mkdir(parents=True, exist_ok=True)
 
         self.youtube = None
         self._authenticate()
 
-        logger.info("YouTubeApiBackend initialized")
+        logger.info("YouTubeMediaUploader initialized")
 
     def _authenticate(self) -> None:
         """
@@ -78,11 +77,10 @@ class YouTubeApiBackend(VideoBackend):
         Uses stored credentials if available, otherwise initiates OAuth flow.
 
         Raises:
-            VideoBackendError: If authentication fails.
+            MediaUploaderError: If authentication fails.
         """
         creds = None
 
-        # Load existing credentials
         if os.path.exists(self.token_file):
             try:
                 with open(self.token_file, "rb") as token:
@@ -91,7 +89,6 @@ class YouTubeApiBackend(VideoBackend):
             except Exception as e:
                 logger.warning(f"Failed to load token file: {e}")
 
-        # Refresh or create new credentials
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
@@ -102,9 +99,8 @@ class YouTubeApiBackend(VideoBackend):
                     creds = None
 
             if not creds:
-                # Initiate OAuth2 flow
                 if not os.path.exists(self.client_secrets_file):
-                    raise VideoBackendError(
+                    raise MediaUploaderError(
                         f"Client secrets file not found: {self.client_secrets_file}. "
                         f"Please download OAuth2 credentials from Google Cloud Console."
                     )
@@ -117,9 +113,8 @@ class YouTubeApiBackend(VideoBackend):
                     creds = flow.run_local_server(port=0)
                     logger.info("OAuth2 authentication successful")
                 except Exception as e:
-                    raise VideoBackendError(f"OAuth2 authentication failed: {e}") from e
+                    raise MediaUploaderError(f"OAuth2 authentication failed: {e}") from e
 
-            # Save credentials
             try:
                 with open(self.token_file, "wb") as token:
                     pickle.dump(creds, token)
@@ -127,20 +122,19 @@ class YouTubeApiBackend(VideoBackend):
             except Exception as e:
                 logger.warning(f"Failed to save credentials: {e}")
 
-        # Build YouTube API client
         try:
             self.youtube = build("youtube", "v3", credentials=creds)
             logger.info("YouTube API client initialized")
         except Exception as e:
-            raise VideoBackendError(f"Failed to build YouTube API client: {e}") from e
+            raise MediaUploaderError(f"Failed to build YouTube API client: {e}") from e
 
-    def publish_video(self, task: VideoTask, media_ref: str) -> PublishResult:
+    def publish_media(self, task: VideoTask, media_ref: str) -> PublishResult:
         """
-        Upload and schedule video for publishing.
+        Upload and schedule media for publishing.
 
         Args:
-            task: Video task with metadata.
-            media_ref: Abstract media reference (resolved to file path internally).
+            task: Media task with metadata.
+            media_ref: Media reference (resolved to local file path internally via MediaStore).
 
         Returns:
             PublishResult with upload status and video ID.
@@ -148,26 +142,22 @@ class YouTubeApiBackend(VideoBackend):
         Raises:
             RetryableError: For temporary errors (429, 5xx, network).
             PermanentError: For permanent errors (invalid file, quota, etc.).
-            VideoBackendError: For other errors.
+            MediaUploaderError: For other errors.
         """
         try:
-            logger.info(f"Starting video upload: {task.title}")
+            logger.info(f"Starting media upload: {task.title}")
 
-            # Resolve media reference to file path
-            video_path = self.media_file_store.get_path(media_ref)
+            video_path = self.media_store.get_path(media_ref)
 
-            # Prepare video metadata
             body = self._prepare_metadata(task)
 
-            # Prepare media upload
             media = MediaFileUpload(
                 str(video_path),
-                chunksize=-1,  # Upload in single request
+                chunksize=-1,
                 resumable=True,
             )
 
-            # Execute upload request
-            logger.debug(f"Uploading video file: {video_path}")
+            logger.debug(f"Uploading media file: {video_path}")
             request = self.youtube.videos().insert(
                 part=",".join(body.keys()),
                 body=body,
@@ -182,9 +172,8 @@ class YouTubeApiBackend(VideoBackend):
                     logger.debug(f"Upload progress: {progress}%")
 
             video_id = response["id"]
-            logger.info(f"Video uploaded successfully: video_id={video_id}")
+            logger.info(f"Media uploaded successfully: video_id={video_id}")
 
-            # Determine result status
             result_status = TaskStatus.SCHEDULED
             publish_at = task.publish_at
 
@@ -200,28 +189,27 @@ class YouTubeApiBackend(VideoBackend):
             return self._handle_http_error(e, task)
 
         except FileNotFoundError as e:
-            raise PermanentError(f"Video file not found: {video_path}") from e
+            raise PermanentError(f"Media file not found: {video_path}") from e
 
         except Exception as e:
             logger.exception(f"Unexpected error during upload: {e}")
-            raise VideoBackendError(f"Upload failed: {e}") from e
+            raise MediaUploaderError(f"Upload failed: {e}") from e
 
-    def upload_thumbnail(self, video_id: str, thumbnail_path: Path) -> bool:
+    def upload_thumbnail(self, video_id: str, thumbnail_ref: str) -> bool:
         """
-        Upload custom thumbnail for a video.
+        Upload custom thumbnail for a media.
 
         Args:
             video_id: YouTube video ID.
-            thumbnail_path: Absolute path to thumbnail image.
+            thumbnail_ref: Thumbnail reference (resolved to local path internally via MediaStore).
 
         Returns:
             True if thumbnail uploaded successfully.
-
-        Raises:
-            VideoBackendError: If upload fails.
         """
         try:
             logger.info(f"Uploading thumbnail for video {video_id}")
+
+            thumbnail_path = self.media_store.get_path(thumbnail_ref)
 
             media = MediaFileUpload(
                 str(thumbnail_path),
@@ -253,10 +241,10 @@ class YouTubeApiBackend(VideoBackend):
 
     def _prepare_metadata(self, task: VideoTask) -> dict:
         """
-        Prepare video metadata for YouTube API.
+        Prepare media metadata for YouTube API.
 
         Args:
-            task: Video task.
+            task: Media task.
 
         Returns:
             Metadata dictionary for API request.
@@ -274,18 +262,13 @@ class YouTubeApiBackend(VideoBackend):
             "privacyStatus": task.privacy_status.value,
         }
 
-        # Handle scheduled publishing
         if task.publish_at:
-            # YouTube requires publishAt in ISO 8601 format with timezone
             publish_at_str = task.publish_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             status["publishAt"] = publish_at_str
 
-            # For scheduled videos, privacy must be "private" until publish time
-            # YouTube will automatically change it based on the scheduled time
             if task.privacy_status != PrivacyStatus.PRIVATE:
-                # Set to private now, will change at publishAt time
                 logger.debug(
-                    f"Scheduled video privacy set to private (will change to "
+                    f"Scheduled media privacy set to private (will change to "
                     f"{task.privacy_status.value} at {publish_at_str})"
                 )
 
@@ -294,7 +277,7 @@ class YouTubeApiBackend(VideoBackend):
             "status": status,
         }
 
-        logger.debug(f"Video metadata prepared: {body}")
+        logger.debug(f"Media metadata prepared: {body}")
         return body
 
     def _handle_http_error(self, error: HttpError, task: VideoTask) -> PublishResult:
@@ -303,7 +286,7 @@ class YouTubeApiBackend(VideoBackend):
 
         Args:
             error: HTTP error from API.
-            task: Video task being processed.
+            task: Media task being processed.
 
         Returns:
             PublishResult with error information.
@@ -317,14 +300,12 @@ class YouTubeApiBackend(VideoBackend):
 
         logger.error(f"YouTube API error {status_code}: {error_content}")
 
-        # Retryable errors
         if status_code in self.RETRYABLE_STATUS_CODES:
             error_msg = f"Temporary error {status_code}: {error_content}"
             raise RetryableError(error_msg)
 
-        # Permanent errors
         permanent_errors = {
-            400: "Invalid request (check video format, metadata)",
+            400: "Invalid request (check media format, metadata)",
             401: "Authentication failed (check credentials)",
             403: "Forbidden (check quota, permissions)",
             404: "Resource not found",
@@ -334,6 +315,5 @@ class YouTubeApiBackend(VideoBackend):
             error_msg = f"{permanent_errors[status_code]}: {error_content}"
             raise PermanentError(error_msg)
 
-        # Unknown error - treat as permanent
         error_msg = f"HTTP error {status_code}: {error_content}"
         raise PermanentError(error_msg)

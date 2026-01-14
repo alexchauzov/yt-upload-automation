@@ -1,31 +1,31 @@
-"""Fake YouTube backend for acceptance tests."""
+"""Fake YouTube media uploader for acceptance tests."""
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
 from domain.models import PublishResult, TaskStatus, VideoTask
-from ports.video_backend import PermanentError, VideoBackend
+from ports.media_uploader import MediaUploader, PermanentError
 
 
 class FakeYouTubeMode(Enum):
-    """Modes for controlling FakeYouTubeBackend behavior."""
+    """Modes for controlling FakeYouTubeUploader behavior."""
 
     SUCCESS_PUBLIC = "success_public"
     SUCCESS_SCHEDULED = "success_scheduled"
     FAIL = "fail"
 
 
-class FakeYouTubeBackend(VideoBackend):
+class FakeYouTubeUploader(MediaUploader):
     """
-    Fake YouTube backend for acceptance tests.
+    Fake YouTube media uploader for acceptance tests.
 
     Behavior controlled by mode parameter.
-    Always validates that video file exists and is readable.
+    Validates media reference format.
     """
 
     def __init__(self, mode: FakeYouTubeMode = FakeYouTubeMode.SUCCESS_PUBLIC):
         """
-        Initialize fake backend.
+        Initialize fake uploader.
 
         Args:
             mode: Behavior mode (success or failure scenarios).
@@ -34,36 +34,34 @@ class FakeYouTubeBackend(VideoBackend):
         self.uploaded_videos = {}
         self.call_count = 0
 
-    def publish_video(self, task: VideoTask, video_path: Path) -> PublishResult:
+    def publish_media(self, task: VideoTask, media_ref: str) -> PublishResult:
         """
-        Simulate video upload with configurable behavior.
+        Simulate media upload with configurable behavior.
 
-        Always validates file exists and is readable before processing.
         Only accepts .mp4 and .mov files; rejects others with format error.
 
         Args:
-            task: Video task with metadata.
-            video_path: Absolute path to video file.
+            task: Media task with metadata.
+            media_ref: Media reference (path, URL, etc.).
 
         Returns:
             PublishResult with outcome based on mode.
 
         Raises:
-            PermanentError: If file not found/readable, unsupported format, or in FAIL mode.
+            PermanentError: If unsupported format or in FAIL mode.
         """
         self.call_count += 1
 
-        # Validate file extension (only .mp4 and .mov supported)
-        # Note: File existence/readability not checked in fake backend
+        media_path = Path(media_ref)
         allowed_extensions = {'.mp4', '.mov'}
-        if video_path.suffix.lower() not in allowed_extensions:
-            raise PermanentError("Incorrect video format")
+        if media_path.suffix.lower() not in allowed_extensions:
+            raise PermanentError("Incorrect media format")
 
         if self.mode == FakeYouTubeMode.FAIL:
-            raise PermanentError("Upload failed (fake): Invalid video format")
+            raise PermanentError("Upload failed (fake): Invalid media format")
 
         video_id = f"fake_{task.task_id}_{self.call_count}"
-        self.uploaded_videos[video_id] = (task, video_path)
+        self.uploaded_videos[video_id] = (task, media_ref)
 
         return PublishResult(
             success=True,
@@ -73,15 +71,15 @@ class FakeYouTubeBackend(VideoBackend):
             upload_time=datetime.utcnow(),
         )
 
-    def upload_thumbnail(self, video_id: str, thumbnail_path: Path) -> bool:
+    def upload_thumbnail(self, video_id: str, thumbnail_ref: str) -> bool:
         """
         Simulate thumbnail upload (always succeeds).
 
         Args:
             video_id: YouTube video ID.
-            thumbnail_path: Path to thumbnail image.
+            thumbnail_ref: Thumbnail reference (path, URL, etc.).
 
         Returns:
-            True (always succeeds in fake backend).
+            True (always succeeds in fake uploader).
         """
         return True
