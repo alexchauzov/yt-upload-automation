@@ -72,7 +72,6 @@ def workflow_dirs(tmp_path_factory):
     os.environ["VIDEO_WATCH_DIR"] = str(dirs["WATCH"])
     os.environ["VIDEO_IN_PROGRESS_DIR"] = str(dirs["IN_PROGRESS"])
     os.environ["VIDEO_UPLOADED_DIR"] = str(dirs["UPLOADED"])
-    os.environ["VIDEO_FAILED_DIR"] = str(dirs["FAILED"])
 
     return dirs
 
