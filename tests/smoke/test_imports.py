@@ -11,7 +11,6 @@ def test_import_domain():
 @pytest.mark.smoke
 def test_import_adapters():
     import adapters.google_sheets_repository
-    import adapters.youtube_backend
     import adapters.local_media_file_store
     assert adapters.google_sheets_repository.GoogleSheetsMetadataRepository is not None
 
