@@ -3,6 +3,8 @@ import os
 import pytest
 from dotenv import load_dotenv
 
+from tests.acceptance.test_file_workflow_helpers import reset_workflow_fs
+
 load_dotenv()
 
 
@@ -54,3 +56,35 @@ def require_google_credentials():
             "  - RUNTIME_SPREADSHEET_ID\n\n"
             "See README.md for detailed setup instructions."
         )
+
+
+@pytest.fixture(scope="session")
+def workflow_dirs(tmp_path_factory):
+    """
+    Create workflow directory structure for file tests.
+    Session-scoped: created once, shared across tests.
+    Cleaned up automatically by pytest tmp_path_factory.
+    """
+    temp_root = tmp_path_factory.mktemp("workflow")
+    dirs = reset_workflow_fs(temp_root)
+
+    # Override env vars for this session
+    os.environ["VIDEO_WATCH_DIR"] = str(dirs["WATCH"])
+    os.environ["VIDEO_IN_PROGRESS_DIR"] = str(dirs["IN_PROGRESS"])
+    os.environ["VIDEO_UPLOADED_DIR"] = str(dirs["UPLOADED"])
+    os.environ["VIDEO_FAILED_DIR"] = str(dirs["FAILED"])
+
+    return dirs
+
+
+@pytest.fixture
+def clean_workflow_dirs(workflow_dirs):
+    """
+    Clean all workflow directories before each test.
+    Ensures test isolation.
+    """
+    for dir_path in workflow_dirs.values():
+        if dir_path.exists():
+            for file in dir_path.iterdir():
+                file.unlink()
+    yield workflow_dirs
