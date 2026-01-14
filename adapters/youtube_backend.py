@@ -16,6 +16,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 from domain.models import PrivacyStatus, PublishResult, TaskStatus, VideoTask
+from ports.media_file_store import MediaFileStore
 from ports.video_backend import PermanentError, RetryableError, VideoBackend, VideoBackendError
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class YouTubeApiBackend(VideoBackend):
 
     def __init__(
         self,
+        media_file_store: MediaFileStore,
         client_secrets_file: str | None = None,
         token_file: str | None = None,
     ):
@@ -44,6 +46,7 @@ class YouTubeApiBackend(VideoBackend):
         Initialize YouTube API backend.
 
         Args:
+            media_file_store: Media file store for resolving media references to paths.
             client_secrets_file: Path to OAuth2 client secrets JSON.
                        If None, uses YOUTUBE_CLIENT_SECRETS_FILE env var.
             token_file: Path to store OAuth2 token.
@@ -52,6 +55,7 @@ class YouTubeApiBackend(VideoBackend):
         Raises:
             VideoBackendError: If initialization fails.
         """
+        self.media_file_store = media_file_store
         self.client_secrets_file = client_secrets_file or os.getenv(
             "YOUTUBE_CLIENT_SECRETS_FILE", "client_secrets.json"
         )
@@ -130,13 +134,13 @@ class YouTubeApiBackend(VideoBackend):
         except Exception as e:
             raise VideoBackendError(f"Failed to build YouTube API client: {e}") from e
 
-    def publish_video(self, task: VideoTask, video_path: Path) -> PublishResult:
+    def publish_video(self, task: VideoTask, media_ref: str) -> PublishResult:
         """
         Upload and schedule video for publishing.
 
         Args:
             task: Video task with metadata.
-            video_path: Absolute path to video file.
+            media_ref: Abstract media reference (resolved to file path internally).
 
         Returns:
             PublishResult with upload status and video ID.
@@ -148,6 +152,9 @@ class YouTubeApiBackend(VideoBackend):
         """
         try:
             logger.info(f"Starting video upload: {task.title}")
+
+            # Resolve media reference to file path
+            video_path = self.media_file_store.get_path(media_ref)
 
             # Prepare video metadata
             body = self._prepare_metadata(task)
