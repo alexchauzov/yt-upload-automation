@@ -58,6 +58,9 @@ jobs:
       - name: Setup Google credentials
         run: printf '%s' '${{ secrets.GOOGLE_SA_JSON }}' > "$RUNNER_TEMP/sa.json"
 
+      - name: Make scripts executable
+        run: chmod +x scripts/acceptance.sh
+
       - name: Run acceptance tests (with reset)
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
