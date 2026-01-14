@@ -9,13 +9,12 @@ def get_workflow_dirs() -> dict[str, Path]:
 
     Returns:
         Dict mapping stage names to Path objects.
-        Keys: WATCH, IN_PROGRESS, UPLOADED, FAILED
+        Keys: WATCH, IN_PROGRESS, UPLOADED
     """
     return {
         "WATCH": Path(os.getenv("VIDEO_WATCH_DIR", ".test_data/watch")),
         "IN_PROGRESS": Path(os.getenv("VIDEO_IN_PROGRESS_DIR", ".test_data/in_progress")),
         "UPLOADED": Path(os.getenv("VIDEO_UPLOADED_DIR", ".test_data/uploaded")),
-        "FAILED": Path(os.getenv("VIDEO_FAILED_DIR", ".test_data/failed")),
     }
 
 
@@ -36,7 +35,6 @@ def reset_workflow_fs(temp_dir: Path) -> dict[str, Path]:
         "WATCH": temp_dir / "watch",
         "IN_PROGRESS": temp_dir / "in_progress",
         "UPLOADED": temp_dir / "uploaded",
-        "FAILED": temp_dir / "failed",
     }
 
     for dir_path in dirs.values():
