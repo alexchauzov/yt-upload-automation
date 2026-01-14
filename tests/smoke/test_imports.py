@@ -12,7 +12,7 @@ def test_import_domain():
 def test_import_adapters():
     import adapters.google_sheets_repository
     import adapters.youtube_backend
-    import adapters.local_storage
+    import adapters.local_media_file_store
     assert adapters.google_sheets_repository.GoogleSheetsMetadataRepository is not None
 
 
@@ -20,7 +20,7 @@ def test_import_adapters():
 def test_import_ports():
     import ports.metadata_repository
     import ports.video_backend
-    import ports.storage
+    import ports.media_file_store
     assert ports.metadata_repository.MetadataRepository is not None
 
 
