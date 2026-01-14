@@ -48,6 +48,8 @@ def create_publish_service_for_test(
     mock_media_file_store = Mock(spec=MediaFileStore)
     mock_media_file_store.exists.return_value = True
     mock_media_file_store.get_path.side_effect = lambda path: Path(path)
+    # transition returns same path (mock doesn't move files)
+    mock_media_file_store.transition.side_effect = lambda path, stage: path
 
     fake_backend = FakeYouTubeBackend(mode=fake_youtube_mode)
 

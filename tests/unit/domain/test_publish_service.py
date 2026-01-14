@@ -21,7 +21,10 @@ def mock_metadata_repo():
 @pytest.fixture
 def mock_media_file_store():
     """Mock media file store."""
-    return Mock(spec=MediaFileStore)
+    mock = Mock(spec=MediaFileStore)
+    # Default transition behavior: return same path with /in_progress/ prefix
+    mock.transition.side_effect = lambda path, stage: f"/in_progress{path}"
+    return mock
 
 
 @pytest.fixture
@@ -99,10 +102,8 @@ class TestPublishServiceHappyPath:
 
         mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
         mock_media_file_store.exists.return_value = True
-        mock_media_file_store.get_path.side_effect = [
-            Path("/videos/test.mp4"),
-            Path("/thumbnails/test.jpg"),
-        ]
+        # get_path called: initial validation, after transition, thumbnail
+        mock_media_file_store.get_path.side_effect = lambda path: Path(path)
 
         mock_video_backend.publish_video.return_value = PublishResult(
             success=True,

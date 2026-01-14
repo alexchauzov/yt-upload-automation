@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from domain.models import PublishResult, TaskStatus, VideoTask
+from domain.models import MediaStage, PublishResult, TaskStatus, VideoTask
 from ports.adapter_error import AdapterError
 from ports.media_file_store import MediaFileStore
 from ports.metadata_repository import MetadataRepository
@@ -126,6 +126,22 @@ class PublishService:
 
         except AdapterError as e:
             error_msg = f"Storage error: {str(e)}"
+            logger.error(f"Task {task.task_id}: {error_msg}")
+            self._mark_failed(task, error_msg)
+            return "failed"
+
+        # Transition media to IN_PROGRESS stage
+        try:
+            new_media_ref = self.media_file_store.transition(
+                task.video_file_path, MediaStage.IN_PROGRESS
+            )
+            task.video_file_path = new_media_ref
+            video_path = self.media_file_store.get_path(new_media_ref)
+            logger.info(
+                f"Task {task.task_id}: media transitioned to IN_PROGRESS at {new_media_ref}"
+            )
+        except AdapterError as e:
+            error_msg = f"Failed to transition media to IN_PROGRESS: {str(e)}"
             logger.error(f"Task {task.task_id}: {error_msg}")
             self._mark_failed(task, error_msg)
             return "failed"
