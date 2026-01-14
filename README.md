@@ -253,7 +253,9 @@ python -m app.main --max-retries 5
 pytest -m unit
 
 # Acceptance-тесты (требуют настроенные credentials)
-pytest -m acceptance
+# ВАЖНО: Всегда используйте scripts/acceptance.cmd - он автоматически сбрасывает test spreadsheet
+scripts\acceptance.cmd   # Windows
+scripts/acceptance.sh    # Linux/macOS
 
 # Все тесты
 pytest
@@ -261,6 +263,12 @@ pytest
 # С coverage
 pytest --cov=domain --cov=adapters --cov=app
 ```
+
+**Важно для acceptance-тестов:**
+- **НЕ запускайте** `pytest -m acceptance` напрямую
+- Используйте только `scripts/acceptance.cmd` (Windows) или `scripts/acceptance.sh` (Linux)
+- Эти скрипты автоматически выполняют reset spreadsheet перед тестами
+- Это гарантирует чистое состояние данных для каждого прогона
 
 ### GitHub Actions CI
 
