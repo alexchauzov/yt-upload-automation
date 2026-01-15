@@ -10,11 +10,14 @@
 yt-upload-automation/
 ├── domain/          # Бизнес-логика (models, services)
 ├── ports/           # Интерфейсы для внешних зависимостей
-├── adapters/        # Реализации портов (Google Sheets, YouTube API, Storage)
+├── adapters/        # Реализации портов (Google Sheets, YouTube API, Media Store)
 ├── app/             # CLI приложение и wiring
-└── tests/           # Тесты
-    ├── unit/        # Юнит-тесты с моками
-    └── integration/ # Интеграционные тесты
+├── tests/           # Тесты
+│   ├── smoke/       # Smoke-тесты (imports, CLI)
+│   ├── unit/        # Юнит-тесты с моками
+│   └── acceptance/  # Acceptance-тесты (живое окружение)
+├── utils/           # Утилиты (Drive, Sheets)
+└── docs/            # Документация
 ```
 
 **Ключевые принципы:**
@@ -146,6 +149,9 @@ GOOGLE_SHEETS_ID=your_spreadsheet_id
 # Диапазон листа
 GOOGLE_SHEETS_RANGE=Videos!A:Z
 
+# Статус для фильтрации задач (опционально, по умолчанию: READY)
+SHEETS_READY_STATUS=READY
+
 # Путь к service account JSON
 GOOGLE_APPLICATION_CREDENTIALS=service_account.json
 
@@ -157,6 +163,9 @@ YOUTUBE_TOKEN_FILE=.data/youtube_token.pickle
 
 # Базовая директория для видео файлов (опционально)
 STORAGE_BASE_PATH=/path/to/videos
+
+# Максимальное количество попыток для повторных попыток (опционально, по умолчанию: 3)
+MAX_RETRIES=3
 ```
 
 Полный список параметров смотрите в `.env.example`.
@@ -227,6 +236,7 @@ python -m app.main --max-retries 5
 - **UPLOADING** - загрузка в процессе
 - **SCHEDULED** - успешно загружено и запланировано
 - **FAILED** - ошибка (смотрите `error_message`)
+- **VALIDATED** - валидация прошла
 - **DRY_RUN_OK** - валидация прошла (dry-run режим)
 
 ### Идемпотентность
@@ -246,18 +256,45 @@ python -m app.main --max-retries 5
 
 ## Тестирование
 
-### Локальный запуск
+Проект использует pytest с маркерами для разделения типов тестов.
+
+### Типы тестов
+
+**Smoke Tests** (`tests/smoke/`)
+- Проверяют imports и CLI --help
+- Не требуют credentials
+- Всегда должны проходить в CI
 
 ```bash
-# Unit-тесты (с моками, без внешних API)
-pytest -m unit
+pytest -m smoke
+```
 
-# Acceptance-тесты (требуют настроенные credentials)
-# ВАЖНО: Всегда используйте scripts/acceptance.cmd - он автоматически сбрасывает test spreadsheet
+**Unit Tests** (`tests/unit/`)
+- Используют моки ports интерфейсов
+- Быстрые, не обращаются к реальным API
+- Не требуют credentials
+
+```bash
+pytest -m unit
+```
+
+**Acceptance Tests** (`tests/acceptance/`)
+- Работают с живым Google Spreadsheet
+- Требуют credentials
+- READONLY по данным
+- Автоматически skip в CI без credentials
+
+```bash
+# ВАЖНО: Всегда используйте scripts/acceptance - он автоматически сбрасывает test spreadsheet
 scripts\acceptance.cmd   # Windows
 scripts/acceptance.sh    # Linux/macOS
 
-# Все тесты
+# НЕ запускайте напрямую:
+# pytest -m acceptance
+```
+
+**Все тесты:**
+```bash
 pytest
 
 # С coverage
@@ -281,7 +318,8 @@ CI автоматически запускает тесты на push и PR. Д�
 | Secret | Описание | Как получить |
 |--------|----------|--------------|
 | `GOOGLE_SA_JSON` | Полное содержимое JSON-файла service account | `cat service_account.json` |
-| `GOOGLE_SHEETS_ID` | ID таблицы из URL | `https://docs.google.com/spreadsheets/d/{ID}/edit` |
+| `TEMPLATE_SPREADSHEET_ID` | ID шаблонной таблицы для acceptance-тестов | `https://docs.google.com/spreadsheets/d/{ID}/edit` |
+| `RUNTIME_SPREADSHEET_ID` | ID рабочей таблицы для acceptance-тестов | `https://docs.google.com/spreadsheets/d/{ID}/edit` |
 
 #### Пример добавления GOOGLE_SA_JSON
 
@@ -302,47 +340,74 @@ cat service_account.json
 
 #### Без секретов
 
-Если секреты не настроены, acceptance-тесты упадут с сообщением:
-```
-Google Sheets credentials not configured.
+Если секреты не настроены, acceptance-тесты будут автоматически пропущены (skipped) в CI.
 
-Missing:
-  - GOOGLE_APPLICATION_CREDENTIALS env var not set
-  - GOOGLE_SHEETS_ID env var not set
+CI запускает следующие тесты:
+- **Smoke tests** - всегда выполняются
+- **Unit tests** - всегда выполняются
+- **Acceptance tests** - требуют секреты (GOOGLE_SA_JSON, TEMPLATE_SPREADSHEET_ID, RUNTIME_SPREADSHEET_ID)
 
-For GitHub Actions:
-  Configure these secrets in Settings > Secrets and variables > Actions:
-  - GOOGLE_SA_JSON (full service account JSON)
-  - GOOGLE_SHEETS_ID
-```
+## Документация
+
+Детальная документация по различным аспектам проекта:
+
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - архитектура проекта, принципы Clean Architecture, Ports & Adapters
+- **[TESTING.md](docs/TESTING.md)** - стратегия тестирования, типы тестов, маркеры pytest
+- **[SHEETS_FORMAT.md](docs/SHEETS_FORMAT.md)** - спецификация формата Google Sheets, валидация полей
+- **[WORKFLOWS.md](docs/WORKFLOWS.md)** - рабочие процессы и сценарии использования
+- **[ACCEPTANCE.md](docs/ACCEPTANCE.md)** - руководство по acceptance-тестам
 
 ## Структура проекта
 
 ```
 yt-upload-automation/
 ├── domain/
-│   ├── models.py              # VideoTask, PublishResult, enums
+│   ├── models.py              # VideoTask, PublishResult, TaskStatus, PrivacyStatus
 │   └── services.py            # PublishService (бизнес-логика)
 ├── ports/
 │   ├── metadata_repository.py # MetadataRepository interface
-│   ├── storage.py             # Storage interface
-│   └── video_backend.py       # VideoBackend interface
+│   ├── media_store.py         # MediaStore interface (файловое хранилище)
+│   ├── media_uploader.py      # MediaUploader interface (YouTube, etc)
+│   └── adapter_error.py       # Базовые ошибки адаптеров
 ├── adapters/
 │   ├── google_sheets_repository.py  # Google Sheets реализация
-│   ├── youtube_backend.py           # YouTube API реализация
-│   └── local_storage.py             # Локальное хранилище
+│   ├── youtube_media_uploader.py    # YouTube API реализация
+│   └── local_media_store.py         # Локальное хранилище файлов
 ├── app/
 │   └── main.py                # CLI entry point, DI wiring
 ├── tests/
-│   └── unit/
-│       └── domain/
-│           └── test_publish_service.py  # Тесты PublishService
+│   ├── smoke/                 # Smoke-тесты (imports, CLI)
+│   ├── unit/                  # Юнит-тесты с моками
+│   │   ├── domain/            # Тесты domain logic
+│   │   └── adapters/          # Тесты адаптеров
+│   └── acceptance/            # Acceptance-тесты (живое окружение)
+├── utils/                     # Утилиты (Drive, Sheets)
+├── scripts/
+│   ├── acceptance.cmd         # Запуск acceptance-тестов (Windows)
+│   └── acceptance.sh          # Запуск acceptance-тестов (Linux/macOS)
 ├── docs/
-│   └── SHEETS_FORMAT.md       # Спецификация формата Google Sheets
+│   ├── SHEETS_FORMAT.md       # Спецификация формата Google Sheets
+│   ├── ARCHITECTURE.md        # Архитектура проекта
+│   ├── TESTING.md             # Стратегия тестирования
+│   └── WORKFLOWS.md           # Рабочие процессы
 ├── .env.example               # Пример конфигурации
 ├── requirements.txt           # Зависимости
+├── pytest.ini                 # Конфигурация pytest
 └── README.md                  # Этот файл
 ```
+
+## Утилиты
+
+В директории `utils/` находятся вспомогательные скрипты для работы с Google Drive и Sheets:
+
+- **drive_check_folder.py** - проверка папок в Google Drive
+- **drive_delete.py** - удаление файлов из Google Drive
+- **drive_list.py** - список файлов в Google Drive
+- **drive_quota.py** - проверка квоты Google Drive
+- **drive_whoami.py** - информация о текущем пользователе Drive
+- **sheets_reset_verify.py** - сброс и проверка тестового spreadsheet
+
+Эти утилиты используют те же credentials (service account), что и основное приложение.
 
 ## Troubleshooting
 
