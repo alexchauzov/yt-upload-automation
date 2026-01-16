@@ -34,6 +34,7 @@ class MetadataRepository(ABC):
         status: str,
         youtube_video_id: str | None = None,
         error_message: str | None = None,
+        video_file_path: str | None = None,
     ) -> None:
         """
         Update task status and related fields in the repository.
@@ -43,6 +44,7 @@ class MetadataRepository(ABC):
             status: New status value (domain status, e.g., IN_PROGRESS).
             youtube_video_id: Platform media ID if uploaded (parameter name kept for backward compatibility).
             error_message: Error message if failed.
+            video_file_path: Updated media reference (e.g., after file transition to new stage).
 
         Raises:
             MetadataRepositoryError: If update fails.

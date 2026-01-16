@@ -300,6 +300,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         status: str,
         youtube_video_id: str | None = None,
         error_message: str | None = None,
+        video_file_path: str | None = None,
     ) -> None:
         """
         Update task status and related fields.
@@ -311,6 +312,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             status: New status value (domain status, e.g., IN_PROGRESS).
             youtube_video_id: Platform media ID if uploaded (stored in youtube_video_id column).
             error_message: Error message if failed.
+            video_file_path: Updated media reference (stored in video_file_path column).
 
         Raises:
             MetadataRepositoryError: If update fails.
@@ -353,6 +355,15 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
                 updates.append({
                     "range": f"{self._sheet_name()}!{error_col}{row_index}",
                     "values": [[error_message]],
+                })
+
+            # Media reference (stored in video_file_path column)
+            if video_file_path is not None:
+                video_path_col_idx = self._get_column_index("video_file_path")
+                video_path_col = self._column_letter(video_path_col_idx)
+                updates.append({
+                    "range": f"{self._sheet_name()}!{video_path_col}{row_index}",
+                    "values": [[video_file_path]],
                 })
 
             # Updated timestamp

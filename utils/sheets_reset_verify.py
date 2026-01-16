@@ -129,15 +129,26 @@ def reset_runtime(service, template_id: str, runtime_id: str) -> bool:
         print("ERROR: Template spreadsheet has no sheets", file=sys.stderr)
         return False
 
-    old_sheet_ids = [s["sheetId"] for s in runtime_sheets]
-
-    print("  Adding temporary _EMPTY_ sheet...")
-    add_result = service.spreadsheets().batchUpdate(
-        spreadsheetId=runtime_id,
-        body={"requests": [{"addSheet": {"properties": {"title": "_EMPTY_"}}}]}
-    ).execute()
-    empty_sheet_id = add_result["replies"][0]["addSheet"]["properties"]["sheetId"]
-    print(f"    -> Created _EMPTY_ sheet ID {empty_sheet_id}")
+    # Check if _EMPTY_ already exists (from previous failed reset)
+    existing_empty = next(
+        (s for s in runtime_sheets if s["title"] == "_EMPTY_"),
+        None
+    )
+    
+    if existing_empty:
+        print(f"  Found existing _EMPTY_ sheet (ID {existing_empty['sheetId']}), reusing it...")
+        empty_sheet_id = existing_empty["sheetId"]
+        # Remove from old_sheet_ids so we don't delete it
+        old_sheet_ids = [s["sheetId"] for s in runtime_sheets if s["title"] != "_EMPTY_"]
+    else:
+        old_sheet_ids = [s["sheetId"] for s in runtime_sheets]
+        print("  Adding temporary _EMPTY_ sheet...")
+        add_result = service.spreadsheets().batchUpdate(
+            spreadsheetId=runtime_id,
+            body={"requests": [{"addSheet": {"properties": {"title": "_EMPTY_"}}}]}
+        ).execute()
+        empty_sheet_id = add_result["replies"][0]["addSheet"]["properties"]["sheetId"]
+        print(f"    -> Created _EMPTY_ sheet ID {empty_sheet_id}")
 
     if old_sheet_ids:
         print(f"  Deleting {len(old_sheet_ids)} old sheet(s)...")

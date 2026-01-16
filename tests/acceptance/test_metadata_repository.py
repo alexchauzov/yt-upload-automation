@@ -47,7 +47,8 @@ def create_publish_service_for_test(
     mock_media_store = Mock(spec=MediaStore)
     mock_media_store.exists.return_value = True
     mock_media_store.get_path.side_effect = lambda ref: Path(ref)
-    mock_media_store.transition.side_effect = lambda ref, stage: ref
+    mock_media_store.mark_in_progress.side_effect = lambda ref: ref  # Return string, not Mock
+    mock_media_store.transition.side_effect = lambda ref, stage: ref  # Return string, not Mock
 
     fake_uploader = FakeYouTubeUploader(mode=fake_youtube_mode)
 
