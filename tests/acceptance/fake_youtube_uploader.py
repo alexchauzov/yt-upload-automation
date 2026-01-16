@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from domain.models import PublishResult, TaskStatus, VideoTask
+from domain.models import PublishResult, TaskStatus, Task
 from ports.media_uploader import MediaUploader, PermanentError
 
 
@@ -34,7 +34,7 @@ class FakeYouTubeUploader(MediaUploader):
         self.uploaded_videos = {}
         self.call_count = 0
 
-    def publish_media(self, task: VideoTask, media_ref: str) -> PublishResult:
+    def publish_media(self, task: Task, media_ref: str) -> PublishResult:
         """
         Simulate media upload with configurable behavior.
 
@@ -60,12 +60,12 @@ class FakeYouTubeUploader(MediaUploader):
         if self.mode == FakeYouTubeMode.FAIL:
             raise PermanentError("Upload failed (fake): Invalid media format")
 
-        video_id = f"fake_{task.task_id}_{self.call_count}"
-        self.uploaded_videos[video_id] = (task, media_ref)
+        media_id = f"fake_{task.task_id}_{self.call_count}"
+        self.uploaded_videos[media_id] = (task, media_ref)
 
         return PublishResult(
             success=True,
-            video_id=video_id,
+            media_id=media_id,
             status=TaskStatus.SCHEDULED,
             publish_at=task.publish_at,
             upload_time=datetime.utcnow(),

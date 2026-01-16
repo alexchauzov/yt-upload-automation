@@ -9,7 +9,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
-from domain.models import TaskStatus, VideoTask, PrivacyStatus
+from domain.models import TaskStatus, Task, PrivacyStatus
 from domain.services import PublishService
 from ports.media_store import MediaStore
 from tests.acceptance.fake_youtube_uploader import FakeYouTubeUploader, FakeYouTubeMode
@@ -60,7 +60,7 @@ def create_publish_service_for_test(
     )
 
 
-def read_all_rows_from_sheet(sheet_name: str, spreadsheet_id: str) -> List[VideoTask]:
+def read_all_rows_from_sheet(sheet_name: str, spreadsheet_id: str) -> List[Task]:
     """
     Read ALL rows from sheet regardless of status.
 
@@ -128,7 +128,8 @@ def read_all_rows_from_sheet(sheet_name: str, spreadsheet_id: str) -> List[Video
         except ValueError:
             continue
 
-        video_file_path = get_cell(row, "video_file_path")
+        # Read from column "video_file_path" but store as media_reference (abstract reference)
+        media_reference = get_cell(row, "video_file_path")
         title = get_cell(row, "title")
         description = get_cell(row, "description", default="")
         publish_at = parse_datetime(get_cell(row, "publish_at", default=None))
@@ -139,19 +140,20 @@ def read_all_rows_from_sheet(sheet_name: str, spreadsheet_id: str) -> List[Video
         except ValueError:
             privacy_status = PrivacyStatus.PRIVATE
 
-        youtube_video_id = get_cell(row, "youtube_video_id", default=None)
+        # Read from column "youtube_video_id" but store as platform_media_id (platform-agnostic)
+        platform_media_id = get_cell(row, "youtube_video_id", default=None)
         error_message = get_cell(row, "error_message", default=None)
 
-        task = VideoTask(
+        task = Task(
             task_id=task_id,
             row_index=row_index,
-            video_file_path=video_file_path,
+            media_reference=media_reference,
             title=title,
             description=description,
             publish_at=publish_at,
             privacy_status=privacy_status,
             status=status,
-            youtube_video_id=youtube_video_id or None,
+            platform_media_id=platform_media_id or None,
             error_message=error_message or None,
         )
         tasks.append(task)
@@ -172,7 +174,7 @@ class TestMetadataRepositoryBasicRead:
 
         task = tasks[0]
         assert task.task_id == "1"
-        assert task.video_file_path == r"D:\Projects\test-data\VID.mp4"
+        assert task.media_reference == r"D:\Projects\test-data\VID.mp4"
         assert task.title == "Test upload"
         assert task.description == "Test description"
         assert task.status == TaskStatus.READY
@@ -196,7 +198,7 @@ class TestMetadataRepositoryShuffledColumns:
 
         task = tasks[0]
         assert task.task_id == "1"
-        assert task.video_file_path == r"D:\Projects\test-data\VID.mp4"
+        assert task.media_reference == r"D:\Projects\test-data\VID.mp4"
         assert task.title == "Test upload"
         assert task.description == "Test description"
         assert task.status == TaskStatus.READY
@@ -220,7 +222,7 @@ class TestMetadataRepositoryWriteNormalColumns:
         repo.update_task_status(
             task,
             status=TaskStatus.SCHEDULED.value,
-            youtube_video_id="vIdEoId",
+            youtube_video_id="vIdEoId",  # Parameter name kept for backward compatibility with adapter
         )
 
         tasks_after = repo.get_ready_tasks()
@@ -244,7 +246,7 @@ class TestMetadataRepositoryWriteShuffledColumns:
         repo.update_task_status(
             task,
             status=TaskStatus.SCHEDULED.value,
-            youtube_video_id="vIdEoId",
+            youtube_video_id="vIdEoId",  # Parameter name kept for backward compatibility with adapter
         )
 
         tasks_after = repo.get_ready_tasks()
@@ -279,11 +281,11 @@ class TestMetadataRepositoryBulkOperations:
 
         mp4_or_mov_tasks = [
             task for task in tasks_before
-            if task.video_file_path.endswith(('.mp4', '.mov'))
+            if task.media_reference.endswith(('.mp4', '.mov'))
         ]
         other_tasks = [
             task for task in tasks_before
-            if not task.video_file_path.endswith(('.mp4', '.mov'))
+            if not task.media_reference.endswith(('.mp4', '.mov'))
         ]
 
         service = create_publish_service_for_test("Test #5", run_spreadsheet_id)
@@ -309,9 +311,9 @@ class TestMetadataRepositoryBulkOperations:
                 assert task.status == TaskStatus.SCHEDULED, (
                     f"Task {task.task_id}: expected SCHEDULED, got {task.status}"
                 )
-                assert task.youtube_video_id, f"Task {task.task_id}: youtube_video_id should not be empty"
-                assert task.youtube_video_id.startswith("fake_"), (
-                    f"Task {task.task_id}: expected fake video_id, got {task.youtube_video_id}"
+                assert task.platform_media_id, f"Task {task.task_id}: platform_media_id should not be empty"
+                assert task.platform_media_id.startswith("fake_"), (
+                    f"Task {task.task_id}: expected fake media_id, got {task.platform_media_id}"
                 )
             elif task.task_id in other_task_ids:
                 assert task.status == TaskStatus.FAILED, (
@@ -344,11 +346,11 @@ class TestMetadataRepositoryConditionalUpdate:
 
         mp4_task_ids = {
             task.task_id for task in tasks_before
-            if task.video_file_path.endswith(".mp4")
+            if task.media_reference.endswith(".mp4")
         }
         non_mp4_task_ids = {
             task.task_id for task in tasks_before
-            if not task.video_file_path.endswith(".mp4")
+            if not task.media_reference.endswith(".mp4")
         }
 
         assert len(mp4_task_ids) > 0, "Should have at least one .mp4 task"
@@ -376,8 +378,8 @@ class TestMetadataRepositoryConditionalUpdate:
                 assert task.status == TaskStatus.SCHEDULED, (
                     f"Task {task.task_id} (.mp4): expected SCHEDULED, got {task.status}"
                 )
-                assert task.youtube_video_id, (
-                    f"Task {task.task_id} (.mp4): youtube_video_id should not be empty"
+                assert task.platform_media_id, (
+                    f"Task {task.task_id} (.mp4): platform_media_id should not be empty"
                 )
                 assert not task.error_message, (
                     f"Task {task.task_id} (.mp4): error_message should be empty"
@@ -390,6 +392,6 @@ class TestMetadataRepositoryConditionalUpdate:
                     f"Task {task.task_id} (non-.mp4): expected error 'Incorrect media format', "
                     f"got '{task.error_message}'"
                 )
-                assert not task.youtube_video_id, (
-                    f"Task {task.task_id} (non-.mp4): youtube_video_id should be empty"
+                assert not task.platform_media_id, (
+                    f"Task {task.task_id} (non-.mp4): platform_media_id should be empty"
                 )
