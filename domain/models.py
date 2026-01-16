@@ -1,4 +1,4 @@
-"""Domain models for YouTube publishing."""
+"""Domain models for media publishing."""
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -6,9 +6,9 @@ from typing import Optional
 
 
 class TaskStatus(str, Enum):
-    """Video task status."""
+    """Task status."""
     READY = "READY"
-    UPLOADING = "UPLOADING"
+    IN_PROGRESS = "IN_PROGRESS"
     SCHEDULED = "SCHEDULED"
     FAILED = "FAILED"
     VALIDATED = "VALIDATED"
@@ -35,23 +35,24 @@ class TaskOutcome(str, Enum):
 
 
 @dataclass
-class VideoTask:
+class Task:
     """
-    Video publishing task from metadata source.
+    Media publishing task from metadata source.
 
-    Represents a single video to be uploaded to YouTube with all necessary metadata.
+    Represents a single media item to be published with all necessary metadata.
+    Domain-agnostic: works with any media type (video, image, text, etc.)
     """
     # Required fields (no defaults)
     task_id: str
     row_index: int  # Position in metadata source (e.g., Google Sheets row)
-    video_file_path: str
+    media_reference: str  # Abstract media reference (not a concrete path)
     title: str
 
     # Optional fields (with defaults)
-    # Video content
-    thumbnail_path: Optional[str] = None
+    # Media content
+    thumbnail_reference: Optional[str] = None  # Abstract reference to thumbnail
 
-    # YouTube metadata
+    # Platform-specific metadata (domain doesn't interpret these)
     description: str = ""
     tags: list[str] = field(default_factory=list)
     category_id: str = "22"  # Default: People & Blogs
@@ -62,7 +63,7 @@ class VideoTask:
 
     # Task status
     status: TaskStatus = TaskStatus.READY
-    youtube_video_id: Optional[str] = None
+    platform_media_id: Optional[str] = None  # Platform-specific media ID (e.g., YouTube video ID)
     error_message: Optional[str] = None
 
     # Retry tracking
@@ -84,12 +85,12 @@ class VideoTask:
 @dataclass
 class PublishResult:
     """
-    Result of a video publishing operation.
+    Result of a media publishing operation.
 
-    Contains information about the uploaded video and its scheduled publishing time.
+    Contains information about the uploaded media and its scheduled publishing time.
     """
     success: bool
-    video_id: Optional[str] = None
+    media_id: Optional[str] = None  # Platform-specific media ID
     status: Optional[TaskStatus] = None
     publish_at: Optional[datetime] = None
     error_message: Optional[str] = None

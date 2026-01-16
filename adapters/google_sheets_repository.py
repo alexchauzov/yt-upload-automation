@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from domain.models import PrivacyStatus, TaskStatus, VideoTask
+from domain.models import PrivacyStatus, Task, TaskStatus
 from ports.metadata_repository import (
     MetadataRepository,
     MetadataRepositoryError,
@@ -111,7 +111,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         except Exception as e:
             raise MetadataRepositoryError(f"Failed to initialize Google Sheets client: {e}") from e
 
-    def get_ready_tasks(self) -> List[VideoTask]:
+    def get_ready_tasks(self) -> List[Task]:
         """
         Fetch all tasks with configured ready status.
 
@@ -296,7 +296,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
     def update_task_status(
         self,
-        task: VideoTask,
+        task: Task,
         status: str,
         youtube_video_id: str | None = None,
         error_message: str | None = None,
@@ -304,10 +304,12 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         """
         Update task status and related fields.
 
+        Translates domain status IN_PROGRESS to UPLOADING for user visibility in spreadsheet.
+
         Args:
             task: Task to update.
-            status: New status value.
-            youtube_video_id: YouTube video ID if uploaded.
+            status: New status value (domain status, e.g., IN_PROGRESS).
+            youtube_video_id: Platform media ID if uploaded (stored in youtube_video_id column).
             error_message: Error message if failed.
 
         Raises:
@@ -315,19 +317,27 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         """
         try:
             row_index = task.row_index
-            logger.info(f"Updating row {row_index}: status={status}")
+            
+            # Translate IN_PROGRESS to UPLOADING for spreadsheet visibility
+            # UPLOADING is just a display label, not a domain status
+            display_status = status
+            if status == TaskStatus.IN_PROGRESS.value:
+                display_status = "UPLOADING"
+                logger.debug(f"Translating domain status IN_PROGRESS to UPLOADING for row {row_index}")
+            
+            logger.info(f"Updating row {row_index}: status={display_status} (domain: {status})")
 
             updates = []
 
-            # Status column
+            # Status column (use display status for spreadsheet)
             status_col_idx = self._get_column_index("status")
             status_col = self._column_letter(status_col_idx)
             updates.append({
                 "range": f"{self._sheet_name()}!{status_col}{row_index}",
-                "values": [[status]],
+                "values": [[display_status]],
             })
 
-            # YouTube video ID
+            # Platform media ID (stored in youtube_video_id column for backward compatibility)
             if youtube_video_id is not None:
                 video_id_col_idx = self._get_column_index("youtube_video_id")
                 video_id_col = self._column_letter(video_id_col_idx)
@@ -366,7 +376,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         except Exception as e:
             raise MetadataRepositoryError(f"Update failed: {e}") from e
 
-    def increment_attempts(self, task: VideoTask) -> None:
+    def increment_attempts(self, task: Task) -> None:
         """
         Increment retry attempts counter.
 
@@ -421,9 +431,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         row: List[str],
         row_index: int,
         header_map: dict[str, int] | None = None,
-    ) -> VideoTask:
+    ) -> Task:
         """
-        Parse spreadsheet row into VideoTask.
+        Parse spreadsheet row into Task.
 
         Args:
             row: Row data.
@@ -431,7 +441,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             header_map: Optional dict mapping normalized column names to indices.
 
         Returns:
-            VideoTask object.
+            Task object.
 
         Raises:
             ValidationError: If validation fails.
@@ -439,7 +449,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         # Required fields
         task_id = self._get_cell(row, "task_id", header_map=header_map)
         title = self._get_cell(row, "title", header_map=header_map)
-        video_file_path = self._get_cell(row, "video_file_path", header_map=header_map)
+        # Read from column "video_file_path" but store as media_reference (abstract reference)
+        media_reference = self._get_cell(row, "video_file_path", header_map=header_map)
         status = self._get_cell(row, "status", header_map=header_map)
 
         # Validate required fields
@@ -447,8 +458,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             raise ValidationError("task_id is required")
         if not title:
             raise ValidationError("title is required")
-        if not video_file_path:
-            raise ValidationError("video_file_path is required")
+        if not media_reference:
+            raise ValidationError("video_file_path (media_reference) is required")
         if not status:
             raise ValidationError("status is required")
 
@@ -467,7 +478,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             raise ValidationError(f"tags exceed 500 characters: {len(tags_str)}")
 
         category_id = self._get_cell(row, "category_id", default="22", header_map=header_map)
-        thumbnail_path = self._get_cell(row, "thumbnail_path", default=None, header_map=header_map)
+        # Read from column "thumbnail_path" but store as thumbnail_reference (abstract reference)
+        thumbnail_reference = self._get_cell(row, "thumbnail_path", default=None, header_map=header_map)
 
         # Parse datetime fields
         publish_at = self._parse_datetime(
@@ -493,7 +505,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             raise ValidationError(f"Invalid status: {status}")
 
         # Metadata fields
-        youtube_video_id = self._get_cell(
+        # Read from column "youtube_video_id" but store as platform_media_id (platform-agnostic)
+        platform_media_id = self._get_cell(
             row, "youtube_video_id", default=None, header_map=header_map
         )
         error_message = self._get_cell(row, "error_message", default=None, header_map=header_map)
@@ -514,11 +527,11 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             self._get_cell(row, "updated_at", default=None, header_map=header_map)
         )
 
-        return VideoTask(
+        return Task(
             task_id=task_id,
             row_index=row_index,
-            video_file_path=video_file_path,
-            thumbnail_path=thumbnail_path,
+            media_reference=media_reference,
+            thumbnail_reference=thumbnail_reference,
             title=title,
             description=description,
             tags=tags,
@@ -526,7 +539,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             publish_at=publish_at,
             privacy_status=privacy_status,
             status=task_status,
-            youtube_video_id=youtube_video_id or None,
+            platform_media_id=platform_media_id or None,
             error_message=error_message or None,
             attempts=attempts,
             last_attempt_at=last_attempt_at,

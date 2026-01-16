@@ -4,23 +4,23 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List
 
-from domain.models import VideoTask
+from domain.models import Task
 
 
 class MetadataRepository(ABC):
     """
-    Repository for reading and updating video task metadata.
+    Repository for reading and updating task metadata.
 
     Implementation examples: Google Sheets, Database, JSON files.
     """
 
     @abstractmethod
-    def get_ready_tasks(self) -> List[VideoTask]:
+    def get_ready_tasks(self) -> List[Task]:
         """
         Fetch all tasks with READY status (or configurable status).
 
         Returns:
-            List of VideoTask objects ready for publishing.
+            List of Task objects ready for publishing.
 
         Raises:
             MetadataRepositoryError: If fetching fails.
@@ -30,7 +30,7 @@ class MetadataRepository(ABC):
     @abstractmethod
     def update_task_status(
         self,
-        task: VideoTask,
+        task: Task,
         status: str,
         youtube_video_id: str | None = None,
         error_message: str | None = None,
@@ -40,8 +40,8 @@ class MetadataRepository(ABC):
 
         Args:
             task: The task to update.
-            status: New status value.
-            youtube_video_id: YouTube video ID if uploaded.
+            status: New status value (domain status, e.g., IN_PROGRESS).
+            youtube_video_id: Platform media ID if uploaded (parameter name kept for backward compatibility).
             error_message: Error message if failed.
 
         Raises:
@@ -50,7 +50,7 @@ class MetadataRepository(ABC):
         pass
 
     @abstractmethod
-    def increment_attempts(self, task: VideoTask) -> None:
+    def increment_attempts(self, task: Task) -> None:
         """
         Increment retry attempts counter for a task.
 

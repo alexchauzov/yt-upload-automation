@@ -48,6 +48,51 @@ class MediaStore(ABC):
         pass
 
     @abstractmethod
+    def get_local_file_path(self, ref: str) -> Path:
+        """
+        Get local file path for media reference.
+
+        This method is called by adapters that need a local file path (e.g., YouTube uploader).
+        The adapter explicitly requests a local file path, and the media store:
+        - Validates that the reference exists and is accessible
+        - Returns the local file path (may download from remote storage if needed)
+        - If validation fails, raises AdapterError with details
+
+        Args:
+            ref: Media reference to resolve.
+
+        Returns:
+            Absolute Path to local file.
+
+        Raises:
+            AdapterError: If reference is invalid, media doesn't exist, or can't be accessed.
+                         The error should be logged by the adapter with full details.
+        """
+        pass
+
+    @abstractmethod
+    def mark_in_progress(self, ref: str) -> str:
+        """
+        Mark media reference as IN_PROGRESS.
+
+        This is a signal from domain to mark media as being processed.
+        The adapter handles this according to its internal rules:
+        - Local filesystem: may move file from watch/ to in_progress/
+        - Database: may update status column
+        - Cloud storage: may update metadata
+
+        Args:
+            ref: Media reference to mark as IN_PROGRESS.
+
+        Returns:
+            Updated media reference (may be the same or different after transition).
+
+        Raises:
+            AdapterError: If marking fails (media not found, permission denied, etc).
+        """
+        pass
+
+    @abstractmethod
     def get_size(self, ref: str) -> int:
         """
         Get media size in bytes.

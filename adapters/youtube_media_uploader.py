@@ -15,7 +15,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
-from domain.models import PrivacyStatus, PublishResult, TaskStatus, VideoTask
+from domain.models import PrivacyStatus, PublishResult, Task, TaskStatus
 from ports.media_store import MediaStore
 from ports.media_uploader import MediaUploader, MediaUploaderError, PermanentError, RetryableError
 
@@ -128,7 +128,7 @@ class YouTubeMediaUploader(MediaUploader):
         except Exception as e:
             raise MediaUploaderError(f"Failed to build YouTube API client: {e}") from e
 
-    def publish_media(self, task: VideoTask, media_ref: str) -> PublishResult:
+    def publish_media(self, task: Task, media_ref: str) -> PublishResult:
         """
         Upload and schedule media for publishing.
 
@@ -147,7 +147,10 @@ class YouTubeMediaUploader(MediaUploader):
         try:
             logger.info(f"Starting media upload: {task.title}")
 
-            video_path = self.media_store.get_path(media_ref)
+            # Request local file path from media_store
+            # This validates the reference and returns the local path
+            # If validation fails, AdapterError is raised with full details logged by media_store
+            video_path = self.media_store.get_local_file_path(media_ref)
 
             body = self._prepare_metadata(task)
 
@@ -179,7 +182,7 @@ class YouTubeMediaUploader(MediaUploader):
 
             return PublishResult(
                 success=True,
-                video_id=video_id,
+                media_id=video_id,
                 status=result_status,
                 publish_at=publish_at,
                 upload_time=datetime.utcnow(),
@@ -189,11 +192,14 @@ class YouTubeMediaUploader(MediaUploader):
             return self._handle_http_error(e, task)
 
         except FileNotFoundError as e:
-            raise PermanentError(f"Media file not found: {video_path}") from e
+            error_msg = f"Media file not found: {video_path}"
+            logger.error(f"Upload failed: {error_msg}", exc_info=True)
+            raise PermanentError(error_msg) from e
 
         except Exception as e:
-            logger.exception(f"Unexpected error during upload: {e}")
-            raise MediaUploaderError(f"Upload failed: {e}") from e
+            error_msg = f"Unexpected error during upload: {str(e)}"
+            logger.exception(f"Upload failed: {error_msg}")
+            raise MediaUploaderError(error_msg) from e
 
     def upload_thumbnail(self, video_id: str, thumbnail_ref: str) -> bool:
         """
@@ -209,7 +215,8 @@ class YouTubeMediaUploader(MediaUploader):
         try:
             logger.info(f"Uploading thumbnail for video {video_id}")
 
-            thumbnail_path = self.media_store.get_path(thumbnail_ref)
+            # Request local file path from media_store
+            thumbnail_path = self.media_store.get_local_file_path(thumbnail_ref)
 
             media = MediaFileUpload(
                 str(thumbnail_path),
@@ -239,7 +246,7 @@ class YouTubeMediaUploader(MediaUploader):
             logger.warning(f"Thumbnail upload error: {e}")
             return False
 
-    def _prepare_metadata(self, task: VideoTask) -> dict:
+    def _prepare_metadata(self, task: Task) -> dict:
         """
         Prepare media metadata for YouTube API.
 
@@ -280,7 +287,7 @@ class YouTubeMediaUploader(MediaUploader):
         logger.debug(f"Media metadata prepared: {body}")
         return body
 
-    def _handle_http_error(self, error: HttpError, task: VideoTask) -> PublishResult:
+    def _handle_http_error(self, error: HttpError, task: Task) -> PublishResult:
         """
         Handle HTTP errors from YouTube API.
 
