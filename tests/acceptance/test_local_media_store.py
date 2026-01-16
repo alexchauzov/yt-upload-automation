@@ -134,6 +134,8 @@ class TestLocalMediaStoreA2:
 
         with open(expected_new_path, 'rb') as f:
             content = f.read()
-            assert len(content) > 0, "File should be readable"        assert task.media_reference == str(expected_new_path), (
+            assert len(content) > 0, "File should be readable"
+
+        assert task.media_reference == str(expected_new_path), (
             f"Task media_reference should be updated to new path: {expected_new_path}"
         )
