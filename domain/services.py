@@ -148,6 +148,15 @@ class PublishService:
             logger.info(
                 f"Task {task.task_id}: media_reference {task.media_reference} marked as IN_PROGRESS"
             )
+            # Update video_file_path in spreadsheet to reflect new location
+            try:
+                self.metadata_repo.update_task_status(
+                    task,
+                    status=TaskStatus.IN_PROGRESS.value,
+                    video_file_path=task.media_reference,
+                )
+            except Exception as e:
+                logger.warning(f"Task {task.task_id}: failed to update video_file_path: {e}")
         except AdapterError as e:
             error_msg = f"Failed to mark media as IN_PROGRESS: {str(e)}"
             logger.error(f"Task {task.task_id}: {error_msg}", exc_info=True)
@@ -199,6 +208,7 @@ class PublishService:
                     task,
                     status=TaskStatus.SCHEDULED.value,
                     youtube_video_id=result.media_id,
+                    video_file_path=task.media_reference,
                 )
                 logger.info(
                     f"Task {task.task_id}: successfully published "
@@ -208,7 +218,7 @@ class PublishService:
                 logger.error(f"Task {task.task_id}: failed to update status to SCHEDULED: {e}", exc_info=True)
             return "success"
         else:
-            # Mark as failed
+            # Mark as failed (with current media_reference)
             self._mark_failed(task, result.error_message or "Unknown error")
             return "failed"
 
@@ -302,6 +312,7 @@ class PublishService:
                 task,
                 status=TaskStatus.FAILED.value,
                 error_message=error_message,
+                video_file_path=task.media_reference,
             )
             logger.error(f"Task {task.task_id}: marked as FAILED - {error_message}")
         except Exception as e:
