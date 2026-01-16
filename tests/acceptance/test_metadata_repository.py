@@ -223,7 +223,7 @@ class TestMetadataRepositoryWriteNormalColumns:
         repo.update_task_status(
             task,
             status=TaskStatus.SCHEDULED.value,
-            youtube_video_id="vIdEoId",  # Parameter name kept for backward compatibility with adapter
+            platform_media_id="vIdEoId",
         )
 
         tasks_after = repo.get_ready_tasks()
@@ -247,7 +247,7 @@ class TestMetadataRepositoryWriteShuffledColumns:
         repo.update_task_status(
             task,
             status=TaskStatus.SCHEDULED.value,
-            youtube_video_id="vIdEoId",  # Parameter name kept for backward compatibility with adapter
+            platform_media_id="vIdEoId",
         )
 
         tasks_after = repo.get_ready_tasks()

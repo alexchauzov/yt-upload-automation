@@ -153,7 +153,7 @@ class PublishService:
                 self.metadata_repo.update_task_status(
                     task,
                     status=TaskStatus.IN_PROGRESS.value,
-                    video_file_path=task.media_reference,
+                    media_reference=task.media_reference,
                 )
             except Exception as e:
                 logger.warning(f"Task {task.task_id}: failed to update video_file_path: {e}")
@@ -207,8 +207,8 @@ class PublishService:
                 self.metadata_repo.update_task_status(
                     task,
                     status=TaskStatus.SCHEDULED.value,
-                    youtube_video_id=result.media_id,
-                    video_file_path=task.media_reference,
+                    platform_media_id=result.media_id,
+                    media_reference=task.media_reference,
                 )
                 logger.info(
                     f"Task {task.task_id}: successfully published "
@@ -312,7 +312,7 @@ class PublishService:
                 task,
                 status=TaskStatus.FAILED.value,
                 error_message=error_message,
-                video_file_path=task.media_reference,
+                media_reference=task.media_reference,
             )
             logger.error(f"Task {task.task_id}: marked as FAILED - {error_message}")
         except Exception as e:
