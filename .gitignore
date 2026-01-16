@@ -67,3 +67,6 @@ SESSION_CONTEXT.md
 
 # Temporary analysis files (AI-generated, not project documentation)
 *_ANALYSIS.md
+
+# Acceptance test environment (created during tests, cleaned up after)
+.acceptance_test_env/
