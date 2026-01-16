@@ -47,47 +47,57 @@ class FailOnUploadFakeUploader(FakeYouTubeUploader):
 def workflow_base_dir():
     """
     Return the base directory for workflow folders.
-    Uses relative path from project root: ./watch, ./in_progress, ./uploaded
+    Uses isolated directory for acceptance tests: .acceptance_test_env
     """
-    return Path(".")
+    return Path(".acceptance_test_env")
 
 
 @pytest.fixture
 def setup_workflow_dirs(workflow_base_dir):
     """
     Create and clean workflow directories before each test.
+    Cleans up after test completion.
     
     Creates:
-    - ./watch
-    - ./in_progress
-    - ./uploaded
+    - .acceptance_test_env/watch
+    - .acceptance_test_env/in_progress
+    - .acceptance_test_env/uploaded
     
-    Cleans any existing files in these directories.
+    Cleans any existing files in these directories before and after test.
     """
     watch_dir = workflow_base_dir / "watch"
     in_progress_dir = workflow_base_dir / "in_progress"
     uploaded_dir = workflow_base_dir / "uploaded"
     
-    # Create directories
-    for d in [watch_dir, in_progress_dir, uploaded_dir]:
+    dirs = {
+        "watch": watch_dir,
+        "in_progress": in_progress_dir,
+        "uploaded": uploaded_dir,
+    }
+    
+    # Create directories and clean existing files before test
+    for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
         # Clean existing files
         for f in d.iterdir():
             if f.is_file():
                 f.unlink()
     
-    return {
-        "watch": watch_dir,
-        "in_progress": in_progress_dir,
-        "uploaded": uploaded_dir,
-    }
+    yield dirs
+    
+    # Cleanup after test: remove all files (but keep directories for faster cleanup)
+    for d in dirs.values():
+        if d.exists():
+            for f in d.iterdir():
+                if f.is_file():
+                    f.unlink()
 
 
 @pytest.fixture
-def local_media_store(setup_workflow_dirs):
+def local_media_store(setup_workflow_dirs, workflow_base_dir):
     """Create LocalMediaStore with test directories."""
     return LocalMediaStore(
-        base_path=Path("."),
+        base_path=workflow_base_dir,
         in_progress_dir=setup_workflow_dirs["in_progress"],
         uploaded_dir=setup_workflow_dirs["uploaded"],
     )
@@ -117,7 +127,7 @@ class TestFullWorkflowUploadError:
         - error_message should indicate upload error
         
         Test flow:
-        1. Create vid.mp4 in ./watch (matches spreadsheet reference)
+        1. Create vid.mp4 in .acceptance_test_env/watch (matches spreadsheet reference)
         2. Read task from Test #7 sheet
         3. Process with uploader that fails during upload
         4. Verify: status=FAILED, video_file_path=./in_progress/vid.mp4, error contains "upload"
@@ -201,10 +211,10 @@ class TestFullWorkflowTransitionError:
         - error_message should indicate transition/file error
         
         Test flow:
-        1. Create vid.mp4 in both ./watch AND ./in_progress (conflict)
+        1. Create vid.mp4 in both .acceptance_test_env/watch AND .acceptance_test_env/in_progress (conflict)
         2. Read task from Test #8 sheet
         3. Process - should fail during mark_in_progress
-        4. Verify: status=FAILED, video_file_path=./watch/vid.mp4, error mentions file/transition
+        4. Verify: status=FAILED, video_file_path points to watch, error mentions file/transition
         """
         # Setup: create test video in BOTH watch and in_progress (creates conflict)
         watch_dir = setup_workflow_dirs["watch"]
@@ -295,10 +305,10 @@ class TestFullWorkflowSuccess:
         - error_message should be empty
         
         Test flow:
-        1. Create vid.mp4 in ./watch
+        1. Create vid.mp4 in .acceptance_test_env/watch
         2. Read task from Test #9 sheet
         3. Process with successful uploader
-        4. Verify: status=SCHEDULED, video_file_path=./uploaded/vid.mp4, 
+        4. Verify: status=SCHEDULED, video_file_path points to uploaded, 
                    youtube_video_id=fake_*, error_message empty
         """
         # Setup: create test video in watch directory
