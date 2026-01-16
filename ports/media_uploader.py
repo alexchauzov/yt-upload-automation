@@ -1,7 +1,7 @@
 """Interface for media uploading (e.g., YouTube, Instagram, etc.)."""
 from abc import ABC, abstractmethod
 
-from domain.models import PublishResult, VideoTask
+from domain.models import PublishResult, Task
 
 
 class MediaUploader(ABC):
@@ -12,7 +12,7 @@ class MediaUploader(ABC):
     """
 
     @abstractmethod
-    def publish_media(self, task: VideoTask, media_ref: str) -> PublishResult:
+    def publish_media(self, task: Task, media_ref: str) -> PublishResult:
         """
         Upload media to platform.
 

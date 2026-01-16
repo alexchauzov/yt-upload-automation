@@ -91,6 +91,87 @@ class LocalMediaStore(MediaStore):
                 details={"error": str(e)}
             ) from e
 
+    def get_local_file_path(self, ref: str) -> Path:
+        """
+        Get local file path for media reference.
+
+        Validates that the reference exists and is accessible, then returns the local path.
+        This method is called by adapters that need a local file path.
+
+        Returns:
+            Absolute Path to local file.
+
+        Raises:
+            AdapterError: If reference is invalid, media doesn't exist, or can't be accessed.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            resolved_path = self._resolve_path(ref)
+
+            if not resolved_path.exists():
+                error = AdapterError(
+                    code="FILE_NOT_FOUND",
+                    message=f"Media does not exist: {ref}",
+                    details={"path": str(resolved_path)}
+                )
+                logger.error(f"Failed to get local file path: {error}")
+                raise error
+
+            if not resolved_path.is_file():
+                error = AdapterError(
+                    code="NOT_A_FILE",
+                    message=f"Path is not a file: {ref}",
+                    details={"path": str(resolved_path)}
+                )
+                logger.error(f"Failed to get local file path: {error}")
+                raise error
+
+            logger.debug(f"Resolved media reference {ref} to local path: {resolved_path}")
+            return resolved_path
+
+        except AdapterError:
+            raise
+        except Exception as e:
+            error = AdapterError(
+                code="PATH_RESOLUTION_FAILED",
+                message=f"Invalid media reference: {ref}",
+                details={"error": str(e)}
+            )
+            logger.error(f"Failed to get local file path: {error}", exc_info=True)
+            raise error from e
+
+    def mark_in_progress(self, ref: str) -> str:
+        """
+        Mark media reference as IN_PROGRESS.
+
+        Moves file to IN_PROGRESS directory if configured.
+        Returns updated media reference (new path after move, or same if no move needed).
+
+        Returns:
+            Updated media reference.
+
+        Raises:
+            AdapterError: If marking fails.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if MediaStage.IN_PROGRESS not in self.stage_dirs:
+            # If no IN_PROGRESS directory configured, just return the same reference
+            logger.debug(f"No IN_PROGRESS directory configured, keeping reference: {ref}")
+            return ref
+
+        try:
+            # Use transition method to move file
+            new_ref = self.transition(ref, MediaStage.IN_PROGRESS)
+            logger.info(f"Media reference {ref} marked as IN_PROGRESS, new reference: {new_ref}")
+            return new_ref
+        except AdapterError as e:
+            logger.error(f"Failed to mark media {ref} as IN_PROGRESS: {e}", exc_info=True)
+            raise
+
     def get_size(self, ref: str) -> int:
         """
         Get media size in bytes.

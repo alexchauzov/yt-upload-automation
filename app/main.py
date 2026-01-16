@@ -33,7 +33,7 @@ def setup_logging(verbose: bool = False) -> None:
     logging.getLogger("google").setLevel(logging.WARNING)
 
 
-def create_publish_service(dry_run: bool = False, max_retries: int = 3) -> PublishService:
+def create_publish_service(dry_run: bool = False, max_retries: int = 1) -> PublishService:
     """
     Create and wire up PublishService with dependencies.
 
@@ -126,8 +126,8 @@ Examples:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=3,
-        help="Maximum retry attempts for retryable errors (default: 3)",
+        default=1,
+        help="Maximum retry attempts for retryable errors (default: 1, no retries)",
     )
 
     parser.add_argument(
