@@ -298,9 +298,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         self,
         task: Task,
         status: str,
-        youtube_video_id: str | None = None,
+        platform_media_id: str | None = None,
         error_message: str | None = None,
-        video_file_path: str | None = None,
+        media_reference: str | None = None,
     ) -> None:
         """
         Update task status and related fields.
@@ -310,9 +310,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         Args:
             task: Task to update.
             status: New status value (domain status, e.g., IN_PROGRESS).
-            youtube_video_id: Platform media ID if uploaded (stored in youtube_video_id column).
+            platform_media_id: Platform media ID if uploaded (stored in youtube_video_id column).
             error_message: Error message if failed.
-            video_file_path: Updated media reference (stored in video_file_path column).
+            media_reference: Abstract media reference (stored in video_file_path column).
 
         Raises:
             MetadataRepositoryError: If update fails.
@@ -340,12 +340,12 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             })
 
             # Platform media ID (stored in youtube_video_id column for backward compatibility)
-            if youtube_video_id is not None:
+            if platform_media_id is not None:
                 video_id_col_idx = self._get_column_index("youtube_video_id")
                 video_id_col = self._column_letter(video_id_col_idx)
                 updates.append({
                     "range": f"{self._sheet_name()}!{video_id_col}{row_index}",
-                    "values": [[youtube_video_id]],
+                    "values": [[platform_media_id]],
                 })
 
             # Error message
@@ -357,13 +357,13 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
                     "values": [[error_message]],
                 })
 
-            # Media reference (stored in video_file_path column)
-            if video_file_path is not None:
+            # Media reference (stored in video_file_path column for backward compatibility)
+            if media_reference is not None:
                 video_path_col_idx = self._get_column_index("video_file_path")
                 video_path_col = self._column_letter(video_path_col_idx)
                 updates.append({
                     "range": f"{self._sheet_name()}!{video_path_col}{row_index}",
-                    "values": [[video_file_path]],
+                    "values": [[media_reference]],
                 })
 
             # Updated timestamp
