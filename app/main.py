@@ -59,6 +59,37 @@ def create_publish_service(dry_run: bool = False, max_retries: int = 1) -> Publi
         metadata_repo = GoogleSheetsMetadataRepository()
         logger.debug("Metadata repository initialized: Google Sheets")
 
+        # Check if retry functionality is requested but not implemented
+        if max_retries > 1:
+            logger.warning(
+                f"⚠️  RETRY FUNCTIONALITY NOT IMPLEMENTED: "
+                f"max_retries={max_retries} was configured, but retry logic is not yet implemented. "
+                f"Each task will be processed only once (no automatic retries on errors)."
+            )
+            logger.warning(
+                "This means that if a task fails during upload, it will be marked as FAILED "
+                "and the script will continue to the next task without retrying."
+            )
+            
+            # Ask for user confirmation in interactive mode
+            if sys.stdin.isatty():  # Check if stdin is a terminal (interactive mode)
+                while True:
+                    response = input("\n⚠️  Do you want to continue anyway? (y/n): ").strip().lower()
+                    if response in ('y', 'yes'):
+                        logger.info("Continuing with max_retries > 1 (retry logic not implemented)")
+                        break
+                    elif response in ('n', 'no'):
+                        logger.info("Aborted by user")
+                        sys.exit(0)
+                    else:
+                        print("Please enter 'y' or 'n'")
+            else:
+                # Non-interactive mode (e.g., CI/CD, pipes) - just warn and continue
+                logger.warning(
+                    "Non-interactive mode detected. Continuing automatically. "
+                    "Note: retry functionality is not implemented."
+                )
+
         # Initialize media uploader (skip in dry-run mode to avoid OAuth)
         if dry_run:
             media_uploader = None
