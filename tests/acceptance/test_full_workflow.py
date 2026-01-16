@@ -56,15 +56,21 @@ def workflow_base_dir():
 def setup_workflow_dirs(workflow_base_dir):
     """
     Create and clean workflow directories before each test.
-    Cleans up after test completion.
+    Fully removes directory tree after test completion.
     
     Creates:
     - .acceptance_test_env/watch
     - .acceptance_test_env/in_progress
     - .acceptance_test_env/uploaded
     
-    Cleans any existing files in these directories before and after test.
+    Completely removes .acceptance_test_env/ after test.
     """
+    import shutil
+    
+    # Remove directory if exists (from previous test or manual creation)
+    if workflow_base_dir.exists():
+        shutil.rmtree(workflow_base_dir)
+    
     watch_dir = workflow_base_dir / "watch"
     in_progress_dir = workflow_base_dir / "in_progress"
     uploaded_dir = workflow_base_dir / "uploaded"
@@ -75,22 +81,15 @@ def setup_workflow_dirs(workflow_base_dir):
         "uploaded": uploaded_dir,
     }
     
-    # Create directories and clean existing files before test
+    # Create directories before test
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
-        # Clean existing files
-        for f in d.iterdir():
-            if f.is_file():
-                f.unlink()
     
     yield dirs
     
-    # Cleanup after test: remove all files (but keep directories for faster cleanup)
-    for d in dirs.values():
-        if d.exists():
-            for f in d.iterdir():
-                if f.is_file():
-                    f.unlink()
+    # Cleanup after test: completely remove directory tree
+    if workflow_base_dir.exists():
+        shutil.rmtree(workflow_base_dir)
 
 
 @pytest.fixture
