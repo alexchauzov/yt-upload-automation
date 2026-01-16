@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import Mock
 
 from adapters.local_media_store import LocalMediaStore
-from domain.models import TaskStatus, VideoTask
+from domain.models import TaskStatus, Task
 from domain.services import PublishService
 from ports.metadata_repository import MetadataRepository
 from tests.acceptance.fake_youtube_uploader import FakeYouTubeUploader, FakeYouTubeMode
@@ -25,7 +25,7 @@ class TestLocalMediaStoreA1:
         2. Create task pointing to WATCH file
         3. Start processing via PublishService
         4. Verify file moved from WATCH to IN_PROGRESS
-        5. Verify task.video_file_path updated to new location
+        5. Verify task.media_reference updated to new location
         """
         watch_dir = clean_workflow_dirs["WATCH"]
         in_progress_dir = clean_workflow_dirs["IN_PROGRESS"]
@@ -34,10 +34,10 @@ class TestLocalMediaStoreA1:
         video_file = create_test_video(watch_dir, "test_video_a1.mp4")
         assert video_file.exists(), "Video file should exist in WATCH before processing"
 
-        task = VideoTask(
+        task = Task(
             task_id="a1_test",
             row_index=2,
-            video_file_path=str(video_file),
+            media_reference=str(video_file),
             title="Test A1",
         )
 
@@ -60,17 +60,21 @@ class TestLocalMediaStoreA1:
 
         result = service.publish_task(task)
 
+        assert result == "success", "Publish should succeed"
         assert not video_file.exists(), "File should be removed from WATCH"
 
-        expected_new_path = in_progress_dir / "test_video_a1.mp4"
-        assert expected_new_path.exists(), "File should exist in IN_PROGRESS"
-        assert expected_new_path.is_file(), "Path should be a file"
+        # After successful upload, file should be in UPLOADED directory
+        expected_uploaded_path = uploaded_dir / "test_video_a1.mp4"
+        assert expected_uploaded_path.exists(), "File should exist in UPLOADED after successful upload"
+        assert expected_uploaded_path.is_file(), "Path should be a file"
 
-        with open(expected_new_path, 'rb') as f:
+        with open(expected_uploaded_path, 'rb') as f:
             content = f.read()
             assert len(content) > 0, "File should be readable"
 
-        assert task.video_file_path == str(expected_new_path)
+        assert task.media_reference == str(expected_uploaded_path), (
+            f"Task media_reference should be updated to UPLOADED path: {expected_uploaded_path}"
+        )
 
 
 @pytest.mark.acceptance
@@ -83,28 +87,55 @@ class TestLocalMediaStoreA2:
         """
         When YouTube upload succeeds, file should move to UPLOADED.
 
-        Expected behavior (not yet implemented):
-        - File physically moved from IN_PROGRESS to UPLOADED directory
-        - Task.video_file_path updated to new location
-        - Task marked with youtube_video_id
+        Test flow:
+        1. Create video file in IN_PROGRESS directory
+        2. Create task pointing to IN_PROGRESS file
+        3. Process task via PublishService (with fake successful uploader)
+        4. Verify file moved from IN_PROGRESS to UPLOADED
+        5. Verify task.media_reference updated to new location
         """
         in_progress_dir = clean_workflow_dirs["IN_PROGRESS"]
         uploaded_dir = clean_workflow_dirs["UPLOADED"]
 
         video_file = create_test_video(in_progress_dir, "test_video_a2.mp4")
 
-        task = VideoTask(
+        task = Task(
             task_id="a2_test",
             row_index=2,
-            video_file_path=str(video_file),
+            media_reference=str(video_file),
             title="Test A2",
         )
 
+        media_store = LocalMediaStore(
+            in_progress_dir=in_progress_dir,
+            uploaded_dir=uploaded_dir,
+        )
+
+        mock_metadata_repo = Mock(spec=MetadataRepository)
+
         fake_uploader = FakeYouTubeUploader(mode=FakeYouTubeMode.SUCCESS_PUBLIC)
 
-        pytest.xfail("File workflow not implemented yet")
+        service = PublishService(
+            metadata_repo=mock_metadata_repo,
+            media_store=media_store,
+            media_uploader=fake_uploader,
+            max_retries=1,
+            dry_run=False,
+        )
 
+        result = service.publish_task(task)
+
+        assert result == "success", "Publish should succeed"
         assert not video_file.exists(), "File should be removed from IN_PROGRESS"
 
         expected_new_path = uploaded_dir / "test_video_a2.mp4"
         assert expected_new_path.exists(), "File should exist in UPLOADED"
+        assert expected_new_path.is_file(), "Path should be a file"
+
+        with open(expected_new_path, 'rb') as f:
+            content = f.read()
+            assert len(content) > 0, "File should be readable"
+
+        assert task.media_reference == str(expected_new_path), (
+            f"Task media_reference should be updated to new path: {expected_new_path}"
+        )

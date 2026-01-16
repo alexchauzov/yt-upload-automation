@@ -207,6 +207,9 @@ class LocalMediaStore(MediaStore):
         Raises:
             AdapterError: If transition fails.
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         if to_stage not in self.stage_dirs:
             raise AdapterError(
                 code="STAGE_NOT_CONFIGURED",
@@ -232,6 +235,11 @@ class LocalMediaStore(MediaStore):
 
         dest_dir = self.stage_dirs[to_stage]
         dest_path = dest_dir / source_path.name
+
+        # If file is already in target directory, no need to move
+        if source_path.parent.resolve() == dest_dir.resolve():
+            logger.debug(f"Media {source_path.name} already in {to_stage.value} directory, skipping move")
+            return str(source_path)
 
         if dest_path.exists():
             raise AdapterError(

@@ -2,7 +2,7 @@
 import logging
 from typing import Optional
 
-from domain.models import PublishResult, Task, TaskStatus
+from domain.models import MediaStage, PublishResult, Task, TaskStatus
 from ports.adapter_error import AdapterError
 from ports.media_store import MediaStore
 from ports.media_uploader import MediaUploader, MediaUploaderError
@@ -171,6 +171,27 @@ class PublishService:
             # Upload thumbnail if provided
             if task.thumbnail_reference:
                 self._upload_thumbnail(task, result.media_id)
+
+            # Transition media to UPLOADED stage
+            try:
+                updated_media_ref = self.media_store.transition(
+                    task.media_reference,
+                    MediaStage.UPLOADED
+                )
+                task.media_reference = updated_media_ref
+                logger.info(f"Task {task.task_id}: media moved to UPLOADED stage")
+            except AdapterError as e:
+                # Log but don't fail - media is already uploaded
+                logger.warning(
+                    f"Task {task.task_id}: failed to move media to UPLOADED: {e}",
+                    exc_info=True
+                )
+            except Exception as e:
+                # Unexpected error during transition - log but continue
+                logger.warning(
+                    f"Task {task.task_id}: unexpected error moving media to UPLOADED: {e}",
+                    exc_info=True
+                )
 
             # Update task with success status
             try:

@@ -5,7 +5,7 @@ import pytest
 def test_import_domain():
     import domain.models
     import domain.services
-    assert domain.models.VideoTask is not None
+    assert domain.models.Task is not None
 
 
 @pytest.mark.smoke
