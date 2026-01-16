@@ -64,3 +64,6 @@ service_account*.json
 conversation-*.txt
 config.json
 SESSION_CONTEXT.md
+
+# Temporary analysis files (AI-generated, not project documentation)
+*_ANALYSIS.md
