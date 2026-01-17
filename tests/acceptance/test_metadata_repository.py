@@ -1,6 +1,7 @@
 """Acceptance tests for MetadataRepository adapter (Google Sheets)."""
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import List
 from unittest.mock import Mock
 
@@ -130,6 +131,9 @@ def read_all_rows_from_sheet(sheet_name: str, spreadsheet_id: str) -> List[Task]
 
         # Read from column "video_file_path" but store as media_reference (abstract reference)
         media_reference = get_cell(row, "video_file_path")
+        # Normalize path to handle Windows-style paths (with backslashes) on Linux
+        if media_reference:
+            media_reference = str(Path(media_reference))
         title = get_cell(row, "title")
         description = get_cell(row, "description", default="")
         publish_at = parse_datetime(get_cell(row, "publish_at", default=None))
