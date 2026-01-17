@@ -30,18 +30,19 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
     """
 
     # Column mapping (0-indexed) - fallback when header is missing/invalid
+    # Uses OLD field names to match existing spreadsheets
     COLUMN_MAP = {
         "task_id": 0,
         "status": 1,
         "title": 2,
-        "media_reference": 3,
+        "video_file_path": 3,  # OLD name for backward compatibility
         "description": 4,
         "tags": 5,
         "category_id": 6,
-        "thumbnail_reference": 7,
+        "thumbnail_path": 7,  # OLD name for backward compatibility
         "publish_at": 8,
         "privacy_status": 9,
-        "platform_media_id": 10,
+        "youtube_video_id": 10,  # OLD name for backward compatibility
         "error_message": 11,
         "attempts": 12,
         "last_attempt_at": 13,
@@ -322,8 +323,15 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
                     if normalized_old in self._header_map:
                         return self._header_map[normalized_old]
 
+        # Check COLUMN_MAP directly
         if column_name in self.COLUMN_MAP:
             return self.COLUMN_MAP[column_name]
+
+        # Check COLUMN_MAP via alias (looking for new name, COLUMN_MAP has old name)
+        # Example: column_name="media_reference" -> check if "video_file_path" exists in COLUMN_MAP
+        for old_name, new_name in self.FIELD_ALIASES.items():
+            if new_name == column_name and old_name in self.COLUMN_MAP:
+                return self.COLUMN_MAP[old_name]
 
         raise MetadataRepositoryError(
             f"Column '{column_name}' not found in header_map or COLUMN_MAP"
@@ -620,9 +628,24 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         # Try header_map first if provided
         if header_map is not None and normalized_name in header_map:
             index = header_map[normalized_name]
+        elif header_map is not None:
+            # Try to find old name (alias) in header_map
+            index = None
+            for old_name, new_name in self.FIELD_ALIASES.items():
+                if new_name == column_name:
+                    normalized_old = old_name.strip().lower()
+                    if normalized_old in header_map:
+                        index = header_map[normalized_old]
+                        break
         else:
             # Fallback to COLUMN_MAP
             index = self.COLUMN_MAP.get(column_name)
+            # Try alias if not found directly
+            if index is None:
+                for old_name, new_name in self.FIELD_ALIASES.items():
+                    if new_name == column_name and old_name in self.COLUMN_MAP:
+                        index = self.COLUMN_MAP[old_name]
+                        break
 
         if index is None:
             return default
