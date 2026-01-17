@@ -50,15 +50,25 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
     }
 
     # Expected header names (normalized: strip + lowercase)
+    # Includes both new and old (aliased) names for backward compatibility
     EXPECTED_HEADERS = {
         "task_id", "status", "title", "media_reference", "description", "tags",
         "category_id", "thumbnail_reference", "publish_at", "privacy_status",
         "platform_media_id", "error_message", "attempts", "last_attempt_at",
         "created_at", "updated_at",
+        # Old names (backward compatibility)
+        "video_file_path", "youtube_video_id", "thumbnail_path",
     }
 
     # Required columns when using header-based mapping
     REQUIRED_COLUMNS = {"task_id", "media_reference", "title", "description", "publish_at", "status", "platform_media_id", "error_message"}
+
+    # Field aliases for backward compatibility (old_name -> new_name)
+    FIELD_ALIASES = {
+        "video_file_path": "media_reference",
+        "youtube_video_id": "platform_media_id",
+        "thumbnail_path": "thumbnail_reference",
+    }
 
     def __init__(
         self,
@@ -225,8 +235,21 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
         logger.debug(f"Using header-based mapping, found columns: {sorted(found_expected)}")
 
-        # Validate required columns are present
-        missing_required = self.REQUIRED_COLUMNS - header_map.keys()
+        # Validate required columns are present (check both new names and old aliases)
+        missing_required = set()
+        for required_col in self.REQUIRED_COLUMNS:
+            # Check if column exists directly
+            if required_col in header_map:
+                continue
+            # Check if old name (alias) exists
+            found_via_alias = False
+            for old_name, new_name in self.FIELD_ALIASES.items():
+                if new_name == required_col and old_name.strip().lower() in header_map:
+                    found_via_alias = True
+                    break
+            if not found_via_alias:
+                missing_required.add(required_col)
+
         if missing_required:
             found_cols = sorted(header_map.keys() & self.EXPECTED_HEADERS)
             raise MetadataRepositoryError(
@@ -271,6 +294,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         """
         Get column index by name, using header_map if available, otherwise COLUMN_MAP.
 
+        Supports backward compatibility via FIELD_ALIASES.
+
         Args:
             column_name: Column name to look up.
 
@@ -284,8 +309,18 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
         normalized_name = column_name.strip().lower()
 
+        # Try direct match in header_map
         if self._header_map is not None and normalized_name in self._header_map:
             return self._header_map[normalized_name]
+
+        # Try to find old name (alias) in header_map if we're looking for new name
+        # Example: column_name="media_reference" -> check if "video_file_path" exists in spreadsheet
+        if self._header_map is not None:
+            for old_name, new_name in self.FIELD_ALIASES.items():
+                if new_name == column_name:  # We're looking for new name
+                    normalized_old = old_name.strip().lower()
+                    if normalized_old in self._header_map:
+                        return self._header_map[normalized_old]
 
         if column_name in self.COLUMN_MAP:
             return self.COLUMN_MAP[column_name]

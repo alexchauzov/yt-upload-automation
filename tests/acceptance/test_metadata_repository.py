@@ -56,7 +56,6 @@ def create_publish_service_for_test(
         metadata_repo=metadata_repo,
         media_store=mock_media_store,
         media_uploader=fake_uploader,
-        max_retries=1,
         dry_run=False,
     )
 
