@@ -217,7 +217,13 @@ class LocalMediaStore(MediaStore):
                 details={"stage": to_stage.value}
             )
 
-        source_path = Path(media_ref)
+        # Normalize path to handle Windows-style paths (with backslashes) on Linux
+        # Replace backslashes with forward slashes for cross-platform compatibility
+        if media_ref and '\\' in media_ref:
+            normalized_ref = media_ref.replace('\\', '/')
+            source_path = Path(normalized_ref)
+        else:
+            source_path = Path(media_ref)
 
         if not source_path.exists():
             raise AdapterError(
@@ -286,7 +292,15 @@ class LocalMediaStore(MediaStore):
         Returns:
             Absolute Path object.
         """
-        p = Path(ref)
+        # Normalize path to handle Windows-style paths (with backslashes) on Linux
+        # Replace backslashes with forward slashes for cross-platform compatibility
+        # Path() will then normalize to the correct separator for the current OS
+        if ref and '\\' in ref:
+            # Replace backslashes with forward slashes, then let Path normalize
+            normalized_ref = ref.replace('\\', '/')
+            p = Path(normalized_ref)
+        else:
+            p = Path(ref)
 
         if p.is_absolute():
             return p
