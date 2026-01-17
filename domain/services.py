@@ -29,7 +29,6 @@ class PublishService:
         metadata_repo: MetadataRepository,
         media_store: MediaStore,
         media_uploader: Optional[MediaUploader],
-        max_retries: int = 1,
         dry_run: bool = False,
     ):
         """
@@ -39,13 +38,11 @@ class PublishService:
             metadata_repo: Repository for task metadata.
             media_store: Store for accessing and managing media files.
             media_uploader: Uploader for publishing media to platforms.
-            max_retries: Maximum retry attempts (default: 1, no retries).
             dry_run: If True, validate but don't actually upload.
         """
         self.metadata_repo = metadata_repo
         self.media_store = media_store
         self.media_uploader = media_uploader
-        self.max_retries = max_retries
         self.dry_run = dry_run
 
     def publish_all_ready_tasks(self) -> dict:

@@ -28,19 +28,19 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         Test that get_ready_tasks() correctly parses data when columns are reordered.
 
         The header row has columns in a different order than COLUMN_MAP:
-        status, title, task_id, video_file_path, description, tags
+        status, title, task_id, media_reference, description, tags
         """
         # Arrange: columns in non-standard order (includes all required columns)
         header = [
             "status",
             "title",
             "task_id",
-            "video_file_path",
+            "media_reference",
             "description",
             "tags",
             "privacy_status",
             "publish_at",
-            "youtube_video_id",
+            "platform_media_id",
             "error_message",
         ]
         # Data row with values in the same (reordered) positions
@@ -48,12 +48,12 @@ class TestGoogleSheetsRepositoryHeaderMapping:
             "READY",            # status (index 0)
             "My Test Video",    # title (index 1)
             "vid_001",          # task_id (index 2)
-            "/videos/test.mp4", # video_file_path (index 3)
+            "/videos/test.mp4", # media_reference (index 3)
             "Test description", # description (index 4)
             "tag1,tag2",        # tags (index 5)
             "private",          # privacy_status (index 6)
             "",                 # publish_at (index 7)
-            "",                 # youtube_video_id (index 8)
+            "",                 # platform_media_id (index 8)
             "",                 # error_message (index 9)
         ]
 
@@ -78,7 +78,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         task = tasks[0]
         assert task.task_id == "vid_001"
         assert task.title == "My Test Video"
-        assert task.video_file_path == "/videos/test.mp4"
+        assert task.media_reference == "/videos/test.mp4"
         assert task.description == "Test description"
         assert task.tags == ["tag1", "tag2"]
         assert task.status.value == "READY"
@@ -90,10 +90,10 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         """
         # Arrange: completely shuffled column order with all columns present
         header = [
-            "youtube_video_id",  # 0
+            "platform_media_id", # 0
             "error_message",     # 1
             "status",            # 2
-            "video_file_path",   # 3
+            "media_reference",   # 3
             "task_id",           # 4
             "title",             # 5
             "attempts",          # 6
@@ -101,17 +101,17 @@ class TestGoogleSheetsRepositoryHeaderMapping:
             "description",       # 8
             "privacy_status",    # 9
             "tags",              # 10
-            "thumbnail_path",    # 11
+            "thumbnail_reference",# 11
             "publish_at",        # 12
             "last_attempt_at",   # 13
             "created_at",        # 14
             "updated_at",        # 15
         ]
         data_row = [
-            "",                  # youtube_video_id
+            "",                  # platform_media_id
             "",                  # error_message
             "READY",             # status
-            "/path/to/video.mp4",# video_file_path
+            "/path/to/video.mp4",# media_reference
             "task_123",          # task_id
             "Shuffled Title",    # title
             "2",                 # attempts
@@ -119,7 +119,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
             "Shuffled desc",     # description
             "private",           # privacy_status
             "tag1,tag2",         # tags
-            "",                  # thumbnail_path
+            "",                  # thumbnail_reference
             "",                  # publish_at
             "",                  # last_attempt_at
             "",                  # created_at
@@ -147,7 +147,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         task = tasks[0]
         assert task.task_id == "task_123"
         assert task.title == "Shuffled Title"
-        assert task.video_file_path == "/path/to/video.mp4"
+        assert task.media_reference == "/path/to/video.mp4"
         assert task.description == "Shuffled desc"
         assert task.category_id == "27"
         assert task.attempts == 2
@@ -155,9 +155,9 @@ class TestGoogleSheetsRepositoryHeaderMapping:
 
     def test_get_ready_tasks_missing_required_column_raises_error(self, mock_credentials):
         """
-        Test that missing required column (video_file_path) raises MetadataRepositoryError.
+        Test that missing required column (media_reference) raises MetadataRepositoryError.
         """
-        # Arrange: header is valid but missing video_file_path
+        # Arrange: header is valid but missing media_reference
         header = ["task_id", "status", "title", "description"]
         data_row = ["vid_001", "READY", "Test Title", "Some description"]
 
@@ -180,7 +180,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
 
         error_msg = str(exc_info.value)
         assert "Missing required columns" in error_msg
-        assert "video_file_path" in error_msg
+        assert "media_reference" in error_msg
         assert "found columns" in error_msg
 
     def test_get_ready_tasks_missing_multiple_required_columns(self, mock_credentials):
@@ -212,7 +212,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         assert "Missing required columns" in error_msg
         assert "status" in error_msg
         assert "title" in error_msg
-        assert "video_file_path" in error_msg
+        assert "media_reference" in error_msg
 
     def test_get_ready_tasks_fallback_to_column_map_on_invalid_header(self, mock_credentials):
         """
@@ -220,7 +220,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         """
         # Arrange: header with unrecognized column names -> fallback to COLUMN_MAP
         header = ["unknown1", "unknown2", "unknown3"]
-        # Data in COLUMN_MAP order: task_id(0), status(1), title(2), video_file_path(3)
+        # Data in COLUMN_MAP order: task_id(0), status(1), title(2), media_reference(3)
         data_row = ["vid_001", "READY", "Fallback Title", "/videos/fallback.mp4"]
 
         mock_values = MagicMock()
@@ -244,7 +244,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         task = tasks[0]
         assert task.task_id == "vid_001"
         assert task.title == "Fallback Title"
-        assert task.video_file_path == "/videos/fallback.mp4"
+        assert task.media_reference == "/videos/fallback.mp4"
 
     def test_get_ready_tasks_header_with_extra_whitespace(self, mock_credentials):
         """
@@ -255,10 +255,10 @@ class TestGoogleSheetsRepositoryHeaderMapping:
             "  task_id  ",
             " status",
             "title ",
-            "  video_file_path",
+            "  media_reference",
             " description ",
             "publish_at",
-            "youtube_video_id",
+            "platform_media_id",
             "error_message",
         ]
         data_row = ["vid_001", "READY", "Whitespace Test", "/videos/ws.mp4", "Desc", "", "", ""]
@@ -290,7 +290,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         Test that header names are case-insensitive.
         """
         # Arrange: mixed case headers (includes all required columns)
-        header = ["TASK_ID", "Status", "TITLE", "Video_File_Path", "Description", "Publish_At", "YouTube_Video_ID", "Error_Message"]
+        header = ["TASK_ID", "Status", "TITLE", "Media_Reference", "Description", "Publish_At", "Platform_Media_ID", "Error_Message"]
         data_row = ["vid_001", "READY", "Case Test", "/videos/case.mp4", "Desc", "", "", ""]
 
         mock_values = MagicMock()
@@ -339,7 +339,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         """
         Test that only rows with READY status are returned.
         """
-        header = ["task_id", "status", "title", "video_file_path", "description", "publish_at", "youtube_video_id", "error_message"]
+        header = ["task_id", "status", "title", "media_reference", "description", "publish_at", "platform_media_id", "error_message"]
         rows = [
             header,
             ["vid_001", "READY", "Ready Video", "/videos/ready.mp4", "Desc1", "", "", ""],
