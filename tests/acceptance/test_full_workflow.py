@@ -147,7 +147,6 @@ class TestFullWorkflowUploadError:
             metadata_repo=repo,
             media_store=local_media_store,
             media_uploader=failing_uploader,
-            max_retries=1,
             dry_run=False,
         )
         
@@ -236,7 +235,6 @@ class TestFullWorkflowTransitionError:
             metadata_repo=repo,
             media_store=local_media_store,
             media_uploader=uploader,
-            max_retries=1,
             dry_run=False,
         )
         
@@ -324,7 +322,6 @@ class TestFullWorkflowSuccess:
             metadata_repo=repo,
             media_store=local_media_store,
             media_uploader=uploader,
-            max_retries=1,
             dry_run=False,
         )
         

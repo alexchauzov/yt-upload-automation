@@ -54,7 +54,6 @@ class TestLocalMediaStoreA1:
             metadata_repo=mock_metadata_repo,
             media_store=media_store,
             media_uploader=fake_uploader,
-            max_retries=1,
             dry_run=False,
         )
 
@@ -119,7 +118,6 @@ class TestLocalMediaStoreA2:
             metadata_repo=mock_metadata_repo,
             media_store=media_store,
             media_uploader=fake_uploader,
-            max_retries=1,
             dry_run=False,
         )
 
