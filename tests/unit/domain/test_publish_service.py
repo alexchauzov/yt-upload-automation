@@ -8,7 +8,7 @@ from domain.models import Task, TaskStatus, PrivacyStatus, PublishResult
 from domain.services import PublishService
 from ports.adapter_error import AdapterError
 from ports.media_store import MediaStore
-from ports.media_uploader import MediaUploader, RetryableError, PermanentError
+from ports.media_uploader import MediaUploader
 from ports.metadata_repository import MetadataRepository
 
 
@@ -204,94 +204,6 @@ class TestPublishServiceValidation:
         # Assert
         assert stats["failed"] == 1
         mock_media_uploader.publish_media.assert_not_called()
-
-
-@pytest.mark.unit
-class TestPublishServiceRetry:
-    """Test retry logic for retryable errors."""
-
-    def test_retry_on_retryable_error_then_success(
-        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
-    ):
-        """Test retry succeeds after temporary failure."""
-        # Arrange
-        mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-
-        # First attempt fails, second succeeds
-        mock_media_uploader.publish_media.side_effect = [
-            RetryableError("Rate limit exceeded"),
-            PublishResult(success=True, media_id="abc123", status=TaskStatus.SCHEDULED),
-        ]
-
-        service = PublishService(
-            metadata_repo=mock_metadata_repo,
-            media_store=mock_media_store,
-            media_uploader=mock_media_uploader,
-            max_retries=3,
-        )
-
-        # Act
-        stats = service.publish_all_ready_tasks()
-
-        # Assert
-        assert stats["succeeded"] == 1
-        assert mock_media_uploader.publish_media.call_count == 2
-        assert mock_metadata_repo.increment_attempts.call_count == 2
-
-    def test_retry_exhausted(
-        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
-    ):
-        """Test max retries exceeded."""
-        # Arrange
-        mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-
-        # All attempts fail
-        mock_media_uploader.publish_media.side_effect = RetryableError("Network error")
-
-        service = PublishService(
-            metadata_repo=mock_metadata_repo,
-            media_store=mock_media_store,
-            media_uploader=mock_media_uploader,
-            max_retries=3,
-        )
-
-        # Act
-        stats = service.publish_all_ready_tasks()
-
-        # Assert
-        assert stats["failed"] == 1
-        assert stats["succeeded"] == 0
-        assert mock_media_uploader.publish_media.call_count == 3  # max_retries
-        assert mock_metadata_repo.increment_attempts.call_count == 3
-
-        # Should mark as failed
-        call_args = mock_metadata_repo.update_task_status.call_args
-        assert call_args[1]["status"] == TaskStatus.FAILED.value
-
-    def test_no_retry_on_permanent_error(
-        self, mock_metadata_repo, mock_media_store, mock_media_uploader, sample_task
-    ):
-        """Test permanent errors don't trigger retries."""
-        # Arrange
-        mock_metadata_repo.get_ready_tasks.return_value = [sample_task]
-
-        # Permanent error
-        mock_media_uploader.publish_media.side_effect = PermanentError("Invalid media format")
-
-        service = PublishService(
-            metadata_repo=mock_metadata_repo,
-            media_store=mock_media_store,
-            media_uploader=mock_media_uploader,
-            max_retries=3,
-        )
-
-        # Act
-        stats = service.publish_all_ready_tasks()
-
-        # Assert
-        assert stats["failed"] == 1
-        assert mock_media_uploader.publish_media.call_count == 1  # No retries
-        assert mock_metadata_repo.increment_attempts.call_count == 1
 
 
 @pytest.mark.unit

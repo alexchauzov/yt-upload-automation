@@ -22,30 +22,6 @@
 
 
 
-\## Retry Logic
-
-
-
-Автоматические retry выполняются только для временных ошибок:
-
-\- HTTP 429 (Rate Limit)
-
-\- HTTP 5xx (Server Errors)
-
-\- Network timeouts
-
-
-
-Постоянные ошибки (400, 401, 403) не ретраятся.
-
-
-
-Счётчик attempts хранится в Google Sheets и увеличивается через
-
-MetadataRepository.increment\_attempts().
-
-
-
 \## Idempotency
 
 

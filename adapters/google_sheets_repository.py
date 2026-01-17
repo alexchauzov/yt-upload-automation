@@ -34,14 +34,14 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         "task_id": 0,
         "status": 1,
         "title": 2,
-        "video_file_path": 3,
+        "media_reference": 3,
         "description": 4,
         "tags": 5,
         "category_id": 6,
-        "thumbnail_path": 7,
+        "thumbnail_reference": 7,
         "publish_at": 8,
         "privacy_status": 9,
-        "youtube_video_id": 10,
+        "platform_media_id": 10,
         "error_message": 11,
         "attempts": 12,
         "last_attempt_at": 13,
@@ -51,14 +51,14 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
 
     # Expected header names (normalized: strip + lowercase)
     EXPECTED_HEADERS = {
-        "task_id", "status", "title", "video_file_path", "description", "tags",
-        "category_id", "thumbnail_path", "publish_at", "privacy_status",
-        "youtube_video_id", "error_message", "attempts", "last_attempt_at",
+        "task_id", "status", "title", "media_reference", "description", "tags",
+        "category_id", "thumbnail_reference", "publish_at", "privacy_status",
+        "platform_media_id", "error_message", "attempts", "last_attempt_at",
         "created_at", "updated_at",
     }
 
     # Required columns when using header-based mapping
-    REQUIRED_COLUMNS = {"task_id", "video_file_path", "title", "description", "publish_at", "status", "youtube_video_id", "error_message"}
+    REQUIRED_COLUMNS = {"task_id", "media_reference", "title", "description", "publish_at", "status", "platform_media_id", "error_message"}
 
     def __init__(
         self,
@@ -310,9 +310,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         Args:
             task: Task to update.
             status: New status value (domain status, e.g., IN_PROGRESS).
-            platform_media_id: Platform media ID if uploaded (stored in youtube_video_id column).
+            platform_media_id: Platform media ID if uploaded (stored in platform_media_id column).
             error_message: Error message if failed.
-            media_reference: Abstract media reference (stored in video_file_path column).
+            media_reference: Abstract media reference (stored in media_reference column).
 
         Raises:
             MetadataRepositoryError: If update fails.
@@ -339,9 +339,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
                 "values": [[display_status]],
             })
 
-            # Platform media ID (stored in youtube_video_id column for backward compatibility)
+            # Platform media ID (stored in platform_media_id column for backward compatibility)
             if platform_media_id is not None:
-                video_id_col_idx = self._get_column_index("youtube_video_id")
+                video_id_col_idx = self._get_column_index("platform_media_id")
                 video_id_col = self._column_letter(video_id_col_idx)
                 updates.append({
                     "range": f"{self._sheet_name()}!{video_id_col}{row_index}",
@@ -357,9 +357,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
                     "values": [[error_message]],
                 })
 
-            # Media reference (stored in video_file_path column for backward compatibility)
+            # Media reference (stored in media_reference column for backward compatibility)
             if media_reference is not None:
-                video_path_col_idx = self._get_column_index("video_file_path")
+                video_path_col_idx = self._get_column_index("media_reference")
                 video_path_col = self._column_letter(video_path_col_idx)
                 updates.append({
                     "range": f"{self._sheet_name()}!{video_path_col}{row_index}",
@@ -460,8 +460,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         # Required fields
         task_id = self._get_cell(row, "task_id", header_map=header_map)
         title = self._get_cell(row, "title", header_map=header_map)
-        # Read from column "video_file_path" but store as media_reference (abstract reference)
-        media_reference = self._get_cell(row, "video_file_path", header_map=header_map)
+        # Read from column "media_reference" but store as media_reference (abstract reference)
+        media_reference = self._get_cell(row, "media_reference", header_map=header_map)
         status = self._get_cell(row, "status", header_map=header_map)
 
         # Validate required fields
@@ -470,7 +470,7 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         if not title:
             raise ValidationError("title is required")
         if not media_reference:
-            raise ValidationError("video_file_path (media_reference) is required")
+            raise ValidationError("media_reference (media_reference) is required")
         if not status:
             raise ValidationError("status is required")
 
@@ -489,8 +489,8 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             raise ValidationError(f"tags exceed 500 characters: {len(tags_str)}")
 
         category_id = self._get_cell(row, "category_id", default="22", header_map=header_map)
-        # Read from column "thumbnail_path" but store as thumbnail_reference (abstract reference)
-        thumbnail_reference = self._get_cell(row, "thumbnail_path", default=None, header_map=header_map)
+        # Read from column "thumbnail_reference" but store as thumbnail_reference (abstract reference)
+        thumbnail_reference = self._get_cell(row, "thumbnail_reference", default=None, header_map=header_map)
 
         # Parse datetime fields
         publish_at = self._parse_datetime(
@@ -516,9 +516,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
             raise ValidationError(f"Invalid status: {status}")
 
         # Metadata fields
-        # Read from column "youtube_video_id" but store as platform_media_id (platform-agnostic)
+        # Read from column "platform_media_id" but store as platform_media_id (platform-agnostic)
         platform_media_id = self._get_cell(
-            row, "youtube_video_id", default=None, header_map=header_map
+            row, "platform_media_id", default=None, header_map=header_map
         )
         error_message = self._get_cell(row, "error_message", default=None, header_map=header_map)
 

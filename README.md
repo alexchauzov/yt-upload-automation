@@ -164,8 +164,9 @@ YOUTUBE_TOKEN_FILE=.data/youtube_token.pickle
 # Базовая директория для видео файлов (опционально)
 STORAGE_BASE_PATH=/path/to/videos
 
-# Максимальное количество попыток для повторных попыток (опционально, по умолчанию: 3)
-MAX_RETRIES=3
+# Папки для workflow стадий (создаются автоматически)
+MEDIA_IN_PROGRESS_DIR=.data/in_progress
+MEDIA_UPLOADED_DIR=.data/uploaded
 ```
 
 Полный список параметров смотрите в `.env.example`.
@@ -209,12 +210,6 @@ python -m app.main --dry-run
 
 ```bash
 python -m app.main --verbose
-```
-
-**Настройка ретраев:**
-
-```bash
-python -m app.main --max-retries 5
 ```
 
 ### Workflow

@@ -33,13 +33,12 @@ def setup_logging(verbose: bool = False) -> None:
     logging.getLogger("google").setLevel(logging.WARNING)
 
 
-def create_publish_service(dry_run: bool = False, max_retries: int = 1) -> PublishService:
+def create_publish_service(dry_run: bool = False) -> PublishService:
     """
     Create and wire up PublishService with dependencies.
 
     Args:
         dry_run: Enable dry-run mode (validate only, don't upload).
-        max_retries: Maximum retry attempts for retryable errors.
 
     Returns:
         Configured PublishService instance.
@@ -52,43 +51,22 @@ def create_publish_service(dry_run: bool = False, max_retries: int = 1) -> Publi
     try:
         # Initialize media store
         storage_base_path = os.getenv("STORAGE_BASE_PATH")
-        media_store = LocalMediaStore(base_path=storage_base_path)
-        logger.debug(f"Media store initialized: base_path={storage_base_path or 'current directory'}")
+        in_progress_dir = os.getenv("MEDIA_IN_PROGRESS_DIR")
+        uploaded_dir = os.getenv("MEDIA_UPLOADED_DIR")
+
+        media_store = LocalMediaStore(
+            base_path=storage_base_path,
+            in_progress_dir=in_progress_dir,
+            uploaded_dir=uploaded_dir,
+        )
+        logger.debug(
+            f"Media store initialized: base_path={storage_base_path or 'current directory'}, "
+            f"in_progress_dir={in_progress_dir}, uploaded_dir={uploaded_dir}"
+        )
 
         # Initialize metadata repository
         metadata_repo = GoogleSheetsMetadataRepository()
         logger.debug("Metadata repository initialized: Google Sheets")
-
-        # Check if retry functionality is requested but not implemented
-        if max_retries > 1:
-            logger.warning(
-                f"⚠️  RETRY FUNCTIONALITY NOT IMPLEMENTED: "
-                f"max_retries={max_retries} was configured, but retry logic is not yet implemented. "
-                f"Each task will be processed only once (no automatic retries on errors)."
-            )
-            logger.warning(
-                "This means that if a task fails during upload, it will be marked as FAILED "
-                "and the script will continue to the next task without retrying."
-            )
-            
-            # Ask for user confirmation in interactive mode
-            if sys.stdin.isatty():  # Check if stdin is a terminal (interactive mode)
-                while True:
-                    response = input("\n⚠️  Do you want to continue anyway? (y/n): ").strip().lower()
-                    if response in ('y', 'yes'):
-                        logger.info("Continuing with max_retries > 1 (retry logic not implemented)")
-                        break
-                    elif response in ('n', 'no'):
-                        logger.info("Aborted by user")
-                        sys.exit(0)
-                    else:
-                        print("Please enter 'y' or 'n'")
-            else:
-                # Non-interactive mode (e.g., CI/CD, pipes) - just warn and continue
-                logger.warning(
-                    "Non-interactive mode detected. Continuing automatically. "
-                    "Note: retry functionality is not implemented."
-                )
 
         # Initialize media uploader (skip in dry-run mode to avoid OAuth)
         if dry_run:
@@ -105,7 +83,6 @@ def create_publish_service(dry_run: bool = False, max_retries: int = 1) -> Publi
             metadata_repo=metadata_repo,
             media_store=media_store,
             media_uploader=media_uploader,
-            max_retries=max_retries,
             dry_run=dry_run,
         )
 
@@ -142,9 +119,6 @@ Examples:
 
   # Verbose logging
   python -m app.main --verbose
-
-  # Custom max retries
-  python -m app.main --max-retries 5
         """,
     )
 
@@ -152,13 +126,6 @@ Examples:
         "--dry-run",
         action="store_true",
         help="Validate tasks without uploading (sets status to DRY_RUN_OK)",
-    )
-
-    parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=1,
-        help="Maximum retry attempts for retryable errors (default: 1, no retries)",
     )
 
     parser.add_argument(
@@ -192,7 +159,6 @@ Examples:
     # Create service
     service = create_publish_service(
         dry_run=args.dry_run,
-        max_retries=args.max_retries,
     )
 
     # Execute publishing workflow
