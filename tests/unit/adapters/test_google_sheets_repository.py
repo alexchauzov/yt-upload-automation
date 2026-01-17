@@ -220,8 +220,23 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         """
         # Arrange: header with unrecognized column names -> fallback to COLUMN_MAP
         header = ["unknown1", "unknown2", "unknown3"]
-        # Data in COLUMN_MAP order: task_id(0), status(1), title(2), media_reference(3)
-        data_row = ["vid_001", "READY", "Fallback Title", "/videos/fallback.mp4"]
+        # Data in COLUMN_MAP order with all required fields:
+        # 0:task_id, 1:status, 2:title, 3:video_file_path, 4:description, 5:tags, 6:category_id,
+        # 7:thumbnail_path, 8:publish_at, 9:privacy_status, 10:youtube_video_id, 11:error_message
+        data_row = [
+            "vid_001",              # 0: task_id
+            "READY",                # 1: status
+            "Fallback Title",       # 2: title
+            "/videos/fallback.mp4", # 3: video_file_path (OLD name in COLUMN_MAP)
+            "Description",          # 4: description
+            "tag1,tag2",            # 5: tags
+            "22",                   # 6: category_id
+            "",                     # 7: thumbnail_path
+            "2024-01-01T00:00:00Z", # 8: publish_at
+            "private",              # 9: privacy_status
+            "",                     # 10: youtube_video_id
+            "",                     # 11: error_message
+        ]
 
         mock_values = MagicMock()
         mock_values.get.return_value.execute.return_value = {
