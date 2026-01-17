@@ -124,21 +124,33 @@ class TestFullWorkflowUploadError:
         - video_file_path should point to IN_PROGRESS directory
         - youtube_video_id should be empty
         - error_message should indicate upload error
-        
+
         Test flow:
         1. Create vid.mp4 in .acceptance_test_env/watch (matches spreadsheet reference)
-        2. Read task from Test #7 sheet
-        3. Process with uploader that fails during upload
-        4. Verify: status=FAILED, video_file_path=./in_progress/vid.mp4, error contains "upload"
+        2. Update Test #7 spreadsheet with correct file path
+        3. Read task from Test #7 sheet
+        4. Process with uploader that fails during upload
+        5. Verify: status=FAILED, video_file_path=./in_progress/vid.mp4, error contains "upload"
         """
         # Setup: create test video in watch directory
         watch_dir = setup_workflow_dirs["watch"]
         video_file = watch_dir / "vid.mp4"
         create_test_file(video_file)
         assert video_file.exists(), "Test video should exist in watch directory"
-        
-        # Create service with failing uploader
+
+        # Update spreadsheet with correct file path BEFORE reading tasks
         repo = repo_for_sheet("Test #7", run_spreadsheet_id)
+        # Read all tasks first to get the task object
+        from tests.acceptance.test_metadata_repository import read_all_rows_from_sheet
+        all_tasks = read_all_rows_from_sheet("Test #7", run_spreadsheet_id)
+        task_to_update = next((t for t in all_tasks if t.task_id == "1"), None)
+        if task_to_update:
+            # Update media_reference to point to actual test file
+            repo.update_task_status(
+                task=task_to_update,
+                status="READY",
+                media_reference=str(video_file),
+            )
         failing_uploader = FailOnUploadFakeUploader(
             error_message="Upload failed: simulated network error"
         )
