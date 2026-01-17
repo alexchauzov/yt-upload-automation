@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, List
 
 from google.auth.transport.requests import Request
@@ -505,6 +506,11 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         title = self._get_cell(row, "title", header_map=header_map)
         # Read from column "media_reference" but store as media_reference (abstract reference)
         media_reference = self._get_cell(row, "media_reference", header_map=header_map)
+        # Normalize path to handle Windows-style paths (with backslashes) on Linux
+        if media_reference:
+            # Use pathlib.Path to normalize path separators cross-platform
+            # This converts Windows paths like ".\watch\vid.mp4" to "./watch/vid.mp4" on Linux
+            media_reference = str(Path(media_reference))
         status = self._get_cell(row, "status", header_map=header_map)
 
         # Validate required fields
@@ -534,6 +540,9 @@ class GoogleSheetsMetadataRepository(MetadataRepository):
         category_id = self._get_cell(row, "category_id", default="22", header_map=header_map)
         # Read from column "thumbnail_reference" but store as thumbnail_reference (abstract reference)
         thumbnail_reference = self._get_cell(row, "thumbnail_reference", default=None, header_map=header_map)
+        # Normalize path to handle Windows-style paths (with backslashes) on Linux
+        if thumbnail_reference:
+            thumbnail_reference = str(Path(thumbnail_reference))
 
         # Parse datetime fields
         publish_at = self._parse_datetime(
