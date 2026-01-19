@@ -3,7 +3,6 @@
 
 import argparse
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from playwright.sync_api import sync_playwright, Page, Browser
@@ -163,8 +162,8 @@ def main():
         # NEW: Phase 3 - open upload dialog
         open_upload_dialog(page)
 
-        # Keep browser open longer to verify dialog
-        time.sleep(5)  # Increased from 3s to 5s
+        # Wait for user to complete actions in browser
+        input("\nPress Enter to close browser...")
 
         browser.close()
         print("\n[EXIT] Browser closed")
