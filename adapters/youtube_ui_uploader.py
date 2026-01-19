@@ -5,7 +5,8 @@ import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
-from playwright.sync_api import sync_playwright, Page, Browser
+from typing import Optional, Union
+from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 
 
 def validate_iso8601_utc(timestamp_str: str) -> str:
@@ -27,37 +28,85 @@ def validate_iso8601_utc(timestamp_str: str) -> str:
         raise ValueError(f"--publish-at must be in ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SSZ), got: {timestamp_str}")
 
 
-def open_youtube_studio(profile_dir: Path) -> tuple[Browser, Page]:
+def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[str] = None) -> tuple[Union[Browser, BrowserContext], Page]:
     """Launch browser and open YouTube Studio.
 
     Args:
-        profile_dir: Path to persisted browser profile directory
+        profile_dir: Path to persisted browser profile directory (for launch mode)
+        cdp_url: CDP endpoint URL (for CDP connection mode)
 
     Returns:
-        Tuple of (browser, page) for cleanup later
+        Tuple of (browser or context, page) for cleanup later
     """
-    print("[1/3] Launching browser...")
-    print("[INFO] Requested browser channel: chrome")
-
     playwright = sync_playwright().start()
-    try:
-        browser = playwright.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            headless=False,
-            channel="chrome",
-        )
-    except Exception as e:
-        print(f"Error: Failed to launch Chrome browser (channel='chrome'): {e}", file=sys.stderr)
-        print("Make sure Google Chrome is installed on your system.", file=sys.stderr)
-        sys.exit(1)
 
-    if len(browser.pages) == 0:
-        page = browser.new_page()
+    # Mode 1: CDP connection
+    if cdp_url:
+        print("[1/3] Connecting to Chrome via CDP...")
+        print(f"[INFO] CDP endpoint: {cdp_url}")
+
+        try:
+            browser = playwright.chromium.connect_over_cdp(cdp_url)
+        except Exception as e:
+            error_msg = str(e).lower()
+            print(f"Error: Failed to connect to Chrome via CDP: {e}", file=sys.stderr)
+
+            if "connect" in error_msg or "refused" in error_msg or "timeout" in error_msg:
+                print("\n[CDP CONNECTION ERROR]", file=sys.stderr)
+                print("Could not connect to Chrome remote debugging port.", file=sys.stderr)
+                print("Solution: Start Chrome with --remote-debugging-port=9222", file=sys.stderr)
+                print('Example: chrome.exe --remote-debugging-port=9222', file=sys.stderr)
+
+            sys.exit(1)
+
+        print("[INFO] Connected to Chrome via CDP")
+
+        # Get page from existing context or create new
+        contexts = browser.contexts
+        if contexts and len(contexts) > 0:
+            context = contexts[0]
+            if len(context.pages) > 0:
+                page = context.pages[0]
+                print("[INFO] Reusing existing page")
+            else:
+                page = context.new_page()
+                print("[INFO] Created new page in existing context")
+        else:
+            # No contexts yet, create new page in default context
+            page = browser.new_page()
+            print("[INFO] Created new page in new context")
+
+    # Mode 2: Launch with profile (existing behavior)
     else:
-        page = browser.pages[0]
+        print("[1/3] Launching browser...")
+        print("[INFO] Requested browser channel: chrome")
 
-    # Print browser diagnostics
-    print(f"[INFO] Browser type: chromium (channel=chrome)")
+        try:
+            browser = playwright.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                headless=False,
+                channel="chrome",
+            )
+        except Exception as e:
+            error_msg = str(e).lower()
+            print(f"Error: Failed to launch Chrome browser (channel='chrome'): {e}", file=sys.stderr)
+
+            if "lock" in error_msg or "already in use" in error_msg or "cannot create" in error_msg:
+                print("\n[LOCKED PROFILE ERROR]", file=sys.stderr)
+                print("The Chrome profile is locked because Chrome is already running.", file=sys.stderr)
+                print("Solution: Close ALL Chrome windows and try again.", file=sys.stderr)
+            else:
+                print("Make sure Google Chrome is installed on your system.", file=sys.stderr)
+
+            sys.exit(1)
+
+        if len(browser.pages) == 0:
+            page = browser.new_page()
+        else:
+            page = browser.pages[0]
+
+    # Common code for both modes
+    print(f"[INFO] Browser type: chromium")
     print(f"[INFO] User agent: {page.evaluate('navigator.userAgent')}")
 
     print("[2/3] Opening YouTube Studio...")
@@ -123,10 +172,18 @@ def main():
         help="Privacy setting",
     )
 
-    # Optional argument
+    # Optional arguments
     parser.add_argument(
         "--publish-at",
         help="Publish timestamp (ISO 8601 UTC: YYYY-MM-DDTHH:MM:SSZ), required if privacy=scheduled",
+    )
+    parser.add_argument(
+        "--chrome-profile",
+        help='Path to an existing Chrome profile directory (e.g. "C:\\Users\\...\\AppData\\Local\\Google\\Chrome\\User Data\\Default"). Use this to reuse a trusted logged-in session.',
+    )
+    parser.add_argument(
+        "--connect-cdp",
+        help='Connect to existing Chrome started with --remote-debugging-port (e.g. "http://127.0.0.1:9222"). Bypasses profile locking and login detection.',
     )
 
     args = parser.parse_args()
@@ -154,6 +211,11 @@ def main():
         if args.publish_at:
             print("Warning: --publish-at is ignored when privacy is not 'scheduled'")
 
+    # Validate mutually exclusive options
+    if args.connect_cdp and args.chrome_profile:
+        print("Error: Cannot use both --connect-cdp and --chrome-profile", file=sys.stderr)
+        sys.exit(1)
+
     # Print success output
     print(f"File: {file_path.absolute()}")
     print(f"Title: {args.title}")
@@ -163,27 +225,53 @@ def main():
 
     print()
 
-    profile_dir = Path(".pw_profile_youtube")
-    profile_dir.mkdir(exist_ok=True)
+    # Mode selection
+    if args.connect_cdp:
+        print(f"[INFO] Using CDP connection mode")
+        print(f"[INFO] Endpoint: {args.connect_cdp}")
+        print("[INFO] NOTE: Chrome must be running with --remote-debugging-port")
+        print()
 
-    try:
-        browser, page = open_youtube_studio(profile_dir)
+        try:
+            browser, page = open_youtube_studio(cdp_url=args.connect_cdp)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
-        # Wait for user to login/authorize
-        input("\nPress Enter after you've logged in to continue...")
+    elif args.chrome_profile:
+        profile_dir = Path(args.chrome_profile)
+        if not profile_dir.exists():
+            print(f"Error: Chrome profile directory not found: {args.chrome_profile}", file=sys.stderr)
+            sys.exit(1)
+        print(f"[INFO] Using Chrome profile: {profile_dir}")
+        print("[INFO] NOTE: Close all Chrome windows before running, otherwise the profile may be locked.")
+        print()
 
-        # NEW: Phase 3 - open upload dialog
-        open_upload_dialog(page)
+        try:
+            browser, page = open_youtube_studio(profile_dir=profile_dir)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
-        # Wait for user to complete actions in browser
-        input("\nPress Enter to close browser...")
+    else:
+        # Default: Playwright-managed profile
+        profile_dir = Path(".pw_profile_youtube")
+        profile_dir.mkdir(exist_ok=True)
+        print(f"[INFO] Using Playwright-managed profile: {profile_dir}")
+        print()
 
-        browser.close()
-        print("\n[EXIT] Browser closed")
+        try:
+            browser, page = open_youtube_studio(profile_dir=profile_dir)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
-    except Exception as e:
-        print(f"Error: Failed to open browser: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Wait for user to complete actions in browser
+    print("[INFO] Browser ready. YouTube Studio is open.")
+    input("\nPress Enter to close browser...")
+
+    browser.close()
+    print("\n[EXIT] Browser closed")
 
 
 if __name__ == "__main__":
