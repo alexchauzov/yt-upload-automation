@@ -37,18 +37,28 @@ def open_youtube_studio(profile_dir: Path) -> tuple[Browser, Page]:
         Tuple of (browser, page) for cleanup later
     """
     print("[1/3] Launching browser...")
+    print("[INFO] Requested browser channel: chrome")
 
     playwright = sync_playwright().start()
-    browser = playwright.chromium.launch_persistent_context(
-        user_data_dir=str(profile_dir),
-        headless=False,
-        channel="chrome",
-    )
+    try:
+        browser = playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            headless=False,
+            channel="chrome",
+        )
+    except Exception as e:
+        print(f"Error: Failed to launch Chrome browser (channel='chrome'): {e}", file=sys.stderr)
+        print("Make sure Google Chrome is installed on your system.", file=sys.stderr)
+        sys.exit(1)
 
     if len(browser.pages) == 0:
         page = browser.new_page()
     else:
         page = browser.pages[0]
+
+    # Print browser diagnostics
+    print(f"[INFO] Browser type: chromium (channel=chrome)")
+    print(f"[INFO] User agent: {page.evaluate('navigator.userAgent')}")
 
     print("[2/3] Opening YouTube Studio...")
     page.goto("https://studio.youtube.com", wait_until="domcontentloaded")
