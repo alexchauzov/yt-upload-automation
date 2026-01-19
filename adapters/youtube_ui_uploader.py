@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""YouTube UI Uploader - CLI skeleton for future UI automation."""
+"""YouTube UI Uploader - CLI with Playwright browser automation (Phase 2)."""
 
 import argparse
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
+from playwright.sync_api import sync_playwright, Page, Browser
 
 
 def validate_iso8601_utc(timestamp_str: str) -> str:
@@ -26,9 +28,49 @@ def validate_iso8601_utc(timestamp_str: str) -> str:
         raise ValueError(f"--publish-at must be in ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SSZ), got: {timestamp_str}")
 
 
+def open_youtube_studio(profile_dir: Path) -> tuple[Browser, Page]:
+    """Launch browser and open YouTube Studio.
+
+    Args:
+        profile_dir: Path to persisted browser profile directory
+
+    Returns:
+        Tuple of (browser, page) for cleanup later
+    """
+    print("[1/3] Launching browser...")
+
+    playwright = sync_playwright().start()
+    browser = playwright.chromium.launch_persistent_context(
+        user_data_dir=str(profile_dir),
+        headless=False,
+        channel="chromium",
+    )
+
+    if len(browser.pages) == 0:
+        page = browser.new_page()
+    else:
+        page = browser.pages[0]
+
+    print("[2/3] Opening YouTube Studio...")
+    page.goto("https://studio.youtube.com", wait_until="domcontentloaded")
+
+    print("[3/3] Waiting for YouTube Studio to load...")
+    try:
+        page.wait_for_selector(
+            'input[type="email"], ytcp-app',
+            timeout=30000
+        )
+    except Exception:
+        pass
+
+    print("[OK] YouTube Studio opened")
+
+    return browser, page
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="YouTube UI Uploader (Phase 1: CLI skeleton)",
+        description="YouTube UI Uploader (Phase 2: Browser automation)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -79,6 +121,23 @@ def main():
     print(f"Privacy: {args.privacy}")
     if args.privacy == "scheduled" and args.publish_at:
         print(f"Publish at: {args.publish_at}")
+
+    print()
+
+    profile_dir = Path(".pw_profile_youtube")
+    profile_dir.mkdir(exist_ok=True)
+
+    try:
+        browser, page = open_youtube_studio(profile_dir)
+
+        time.sleep(3)
+
+        browser.close()
+        print("\n[EXIT] Browser closed")
+
+    except Exception as e:
+        print(f"Error: Failed to open browser: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
