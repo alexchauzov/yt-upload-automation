@@ -159,6 +159,9 @@ def main():
     try:
         browser, page = open_youtube_studio(profile_dir)
 
+        # Wait for user to login/authorize
+        input("\nPress Enter after you've logged in to continue...")
+
         # NEW: Phase 3 - open upload dialog
         open_upload_dialog(page)
 
