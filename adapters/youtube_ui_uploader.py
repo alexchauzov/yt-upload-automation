@@ -42,7 +42,7 @@ def open_youtube_studio(profile_dir: Path) -> tuple[Browser, Page]:
     browser = playwright.chromium.launch_persistent_context(
         user_data_dir=str(profile_dir),
         headless=False,
-        channel="chromium",
+        channel="chrome",
     )
 
     if len(browser.pages) == 0:
