@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YouTube UI Uploader - CLI with Playwright browser automation (Phase 2)."""
+"""YouTube UI Uploader - Opens YouTube Studio upload dialog (Phase 3)."""
 
 import argparse
 import sys
@@ -68,9 +68,39 @@ def open_youtube_studio(profile_dir: Path) -> tuple[Browser, Page]:
     return browser, page
 
 
+def open_upload_dialog(page: Page) -> None:
+    """Open the YouTube Studio upload dialog.
+
+    Args:
+        page: Playwright page object with YouTube Studio already loaded
+    """
+    print("[4/6] Clicking Create button...")
+
+    # Click the Create button (camera with plus icon)
+    page.click('button[aria-label*="Create"], ytcp-button#create-icon button', timeout=30000)
+
+    print("[5/6] Clicking Upload videos...")
+
+    # Wait for menu to appear, then click "Upload videos"
+    page.click('text="Upload videos", tp-yt-paper-item:has-text("Upload videos")', timeout=10000)
+
+    print("[6/6] Waiting for upload dialog...")
+
+    # Wait for upload dialog/file input to appear
+    try:
+        page.wait_for_selector(
+            'input[type="file"][accept*="video"], ytcp-uploads-dialog',
+            timeout=15000
+        )
+    except Exception:
+        pass  # Continue even if exact selector doesn't match
+
+    print("[OK] Upload dialog opened")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="YouTube UI Uploader (Phase 2: Browser automation)",
+        description="YouTube UI Uploader (Phase 3: Upload dialog)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -130,7 +160,11 @@ def main():
     try:
         browser, page = open_youtube_studio(profile_dir)
 
-        time.sleep(3)
+        # NEW: Phase 3 - open upload dialog
+        open_upload_dialog(page)
+
+        # Keep browser open longer to verify dialog
+        time.sleep(5)  # Increased from 3s to 5s
 
         browser.close()
         print("\n[EXIT] Browser closed")
