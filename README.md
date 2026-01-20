@@ -37,6 +37,19 @@ yt-upload-automation/
 - Структурированное логирование
 - Обновление статусов в Google Sheets в реальном времени
 
+### Два режима загрузки
+
+**1. API-based (основной)** — автоматическая загрузка через YouTube Data API v3
+- Используется в `python -m app.main`
+- Требует OAuth2 credentials
+- Полностью автоматическая публикация
+
+**2. UI-based (универсальный)** — открытие YouTube Studio в браузере
+- Скрипт: `adapters/youtube_ui_uploader.py`
+- Работает через Playwright + Chrome CDP
+- Поддерживает CDP connection mode (подключение к запущенному Chrome)
+- Полезен для обхода ограничений API или когда API не работает
+
 ## Требования
 
 - Python 3.11+
@@ -238,6 +251,28 @@ python -m app.main --verbose
 
 Если задача уже имеет `youtube_video_id`, она будет пропущена. Это позволяет безопасно перезапускать скрипт.
 
+### UI-based uploader (альтернативный режим)
+
+Для случаев, когда API не работает или нужно больше контроля:
+
+```bash
+# Подключение к Chrome с CDP (требует запущенный Chrome с --remote-debugging-port=9222)
+python adapters/youtube_ui_uploader.py \
+  --file /path/to/video.mp4 \
+  --title "My Video" \
+  --privacy private \
+  --connect-cdp http://127.0.0.1:9222
+
+# С использованием Chrome профиля
+python adapters/youtube_ui_uploader.py \
+  --file /path/to/video.mp4 \
+  --title "My Video" \
+  --privacy private \
+  --chrome-profile "C:\Users\...\AppData\Local\Google\Chrome\User Data\Default"
+```
+
+CDP mode рекомендуется — не блокирует профиль и работает с уже запущенным Chrome.
+
 ### Ретраи
 
 Автоматические повторы только для временных ошибок:
@@ -367,6 +402,7 @@ yt-upload-automation/
 ├── adapters/
 │   ├── google_sheets_repository.py  # Google Sheets реализация
 │   ├── youtube_media_uploader.py    # YouTube API реализация
+│   ├── youtube_ui_uploader.py       # YouTube Studio UI (Playwright + CDP)
 │   └── local_media_store.py         # Локальное хранилище файлов
 ├── app/
 │   └── main.py                # CLI entry point, DI wiring
