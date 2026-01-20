@@ -1,9 +1,17 @@
 """Unit tests for GoogleSheetsMetadataRepository column flexibility."""
+import os
+from pathlib import Path
+
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
 from adapters.google_sheets_repository import GoogleSheetsMetadataRepository
 from ports.metadata_repository import MetadataRepositoryError
+
+
+def normalize_path(path: str) -> str:
+    """Normalize path for cross-platform comparison."""
+    return str(Path(path))
 
 
 @pytest.mark.unit
@@ -78,7 +86,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         task = tasks[0]
         assert task.task_id == "vid_001"
         assert task.title == "My Test Video"
-        assert task.media_reference == "/videos/test.mp4"
+        assert task.media_reference == normalize_path("/videos/test.mp4")
         assert task.description == "Test description"
         assert task.tags == ["tag1", "tag2"]
         assert task.status.value == "READY"
@@ -147,7 +155,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         task = tasks[0]
         assert task.task_id == "task_123"
         assert task.title == "Shuffled Title"
-        assert task.media_reference == "/path/to/video.mp4"
+        assert task.media_reference == normalize_path("/path/to/video.mp4")
         assert task.description == "Shuffled desc"
         assert task.category_id == "27"
         assert task.attempts == 2
@@ -259,7 +267,7 @@ class TestGoogleSheetsRepositoryHeaderMapping:
         task = tasks[0]
         assert task.task_id == "vid_001"
         assert task.title == "Fallback Title"
-        assert task.media_reference == "/videos/fallback.mp4"
+        assert task.media_reference == normalize_path("/videos/fallback.mp4")
 
     def test_get_ready_tasks_header_with_extra_whitespace(self, mock_credentials):
         """
