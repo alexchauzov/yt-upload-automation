@@ -71,5 +71,3 @@ SESSION_CONTEXT.md
 # Acceptance test environment (created during tests, cleaned up after)
 .acceptance_test_env/
 
-# Playwright browser profiles
-.pw_profile_youtube/
