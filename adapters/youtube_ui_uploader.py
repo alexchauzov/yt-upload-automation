@@ -254,14 +254,15 @@ def main():
             sys.exit(1)
 
     else:
-        # Default: Playwright-managed profile
-        profile_dir = Path(".pw_profile_youtube")
-        profile_dir.mkdir(exist_ok=True)
-        print(f"[INFO] Using Playwright-managed profile: {profile_dir}")
+        # Default: CDP connection to localhost:9222
+        default_cdp_url = "http://127.0.0.1:9222"
+        print(f"[INFO] Using CDP connection mode (default)")
+        print(f"[INFO] Endpoint: {default_cdp_url}")
+        print("[INFO] NOTE: Chrome must be running with --remote-debugging-port=9222")
         print()
 
         try:
-            browser, page = open_youtube_studio(profile_dir=profile_dir)
+            browser, page = open_youtube_studio(cdp_url=default_cdp_url)
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
