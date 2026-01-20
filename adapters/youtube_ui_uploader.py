@@ -110,17 +110,14 @@ def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[st
     print(f"[INFO] User agent: {page.evaluate('navigator.userAgent')}")
 
     print("[2/3] Opening YouTube Studio...")
-    page.goto("https://studio.youtube.com", wait_until="domcontentloaded")
+    page.goto("https://studio.youtube.com", wait_until="domcontentloaded", timeout=30000)
 
     print("[3/3] Waiting for YouTube Studio to load...")
-    try:
-        page.wait_for_selector(
-            'input[type="email"], ytcp-app',
-            timeout=30000
-        )
-    except Exception:
-        pass
-
+    # Wait for Create button to appear (indicates Studio is ready)
+    page.wait_for_function(
+        """() => document.querySelector('button[aria-label="Create"]') !== null""",
+        timeout=30000
+    )
     print("[OK] YouTube Studio opened")
 
     return browser, page
@@ -132,26 +129,32 @@ def open_upload_dialog(page: Page) -> None:
     Args:
         page: Playwright page object with YouTube Studio already loaded
     """
-    print("[4/6] Clicking Create button...")
+    print("[4/7] Clicking Create button...")
 
-    # Click the Create button (camera with plus icon)
-    page.click('button[aria-label*="Create"], ytcp-button#create-icon button', timeout=30000)
+    # Click the Create button
+    page.click('button[aria-label="Create"]', timeout=30000)
 
-    print("[5/6] Clicking Upload videos...")
+    print("[5/7] Waiting for menu...")
 
-    # Wait for menu to appear, then click "Upload videos"
-    page.click('text="Upload videos", tp-yt-paper-item:has-text("Upload videos")', timeout=10000)
+    # Wait for menu to appear
+    page.wait_for_selector('tp-yt-paper-listbox', timeout=10000)
 
-    print("[6/6] Waiting for upload dialog...")
+    print("[6/7] Clicking Upload videos...")
 
-    # Wait for upload dialog/file input to appear
-    try:
-        page.wait_for_selector(
-            'input[type="file"][accept*="video"], ytcp-uploads-dialog',
-            timeout=15000
-        )
-    except Exception:
-        pass  # Continue even if exact selector doesn't match
+    # Click "Upload videos" menu item
+    page.click('tp-yt-paper-item:has-text("Upload videos")', timeout=10000)
+
+    print("[7/7] Waiting for upload dialog...")
+
+    # Wait for upload dialog using JavaScript (bypasses Shadow DOM issues)
+    page.wait_for_function(
+        """() => {
+            const dialog = document.querySelector('ytcp-uploads-dialog');
+            const fileInput = document.querySelector('input[type="file"]');
+            return dialog !== null || fileInput !== null;
+        }""",
+        timeout=30000
+    )
 
     print("[OK] Upload dialog opened")
 
@@ -269,10 +272,10 @@ def main():
 
     # Wait for user to complete actions in browser
     print("[INFO] Browser ready. YouTube Studio is open.")
-    input("\nPress Enter to close browser...")
 
-    browser.close()
-    print("\n[EXIT] Browser closed")
+    open_upload_dialog(page)
+
+    print("\n[EXIT] Upload dialog opened")
 
 
 if __name__ == "__main__":
