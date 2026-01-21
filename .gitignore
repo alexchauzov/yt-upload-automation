@@ -65,6 +65,9 @@ conversation-*.txt
 config.json
 SESSION_CONTEXT.md
 
+# Cursor local settings
+.cursor/
+
 # Temporary analysis files (AI-generated, not project documentation)
 *_ANALYSIS.md
 

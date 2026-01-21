@@ -2,13 +2,103 @@
 """YouTube UI Uploader - Opens YouTube Studio upload dialog (Phase 3)."""
 
 import argparse
+import atexit
+import os
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
+
+import psutil
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
+
+
+# Lock file directory (in temp directory)
+LOCK_DIR = Path(os.environ.get('TEMP', os.environ.get('TMPDIR', '/tmp')))
+
+# Global variable to track current lock file (for cleanup)
+_current_lock_file: Optional[Path] = None
+
+
+def get_lock_file(port: int) -> Path:
+    """Get lock file path for specific CDP port.
+    
+    Different ports get different lock files, allowing parallel execution
+    with different browsers.
+    """
+    return LOCK_DIR / f'yt_uploader_port{port}.lock'
+
+
+def acquire_lock(port: int) -> bool:
+    """Acquire exclusive lock to prevent multiple instances on same port.
+    
+    Uses PID file with process verification to ensure the lock is valid.
+    If lock file exists but process is dead or not our script - ignores stale lock.
+    
+    Args:
+        port: CDP port number (used to create port-specific lock file)
+    
+    Returns:
+        True if lock acquired, False if another instance is running on this port
+    """
+    global _current_lock_file
+    
+    lock_file = get_lock_file(port)
+    current_pid = os.getpid()
+    script_name = 'youtube_ui_uploader.py'
+    
+    # Check if lock file exists
+    if lock_file.exists():
+        try:
+            lock_data = lock_file.read_text().strip().split('\n')
+            if len(lock_data) >= 2:
+                locked_pid = int(lock_data[0])
+                locked_script = lock_data[1]
+                
+                # Check if process with this PID exists
+                if psutil.pid_exists(locked_pid):
+                    try:
+                        proc = psutil.Process(locked_pid)
+                        cmdline = ' '.join(proc.cmdline())
+                        
+                        # Verify it's actually our script
+                        if script_name in cmdline and locked_script == script_name:
+                            print(f"[ERROR] Another instance is already running on port {port} (PID: {locked_pid})", file=sys.stderr)
+                            return False
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        # Process died or we can't access it - stale lock
+                        pass
+                # PID doesn't exist - stale lock, we can overwrite
+        except (ValueError, IndexError):
+            # Corrupted lock file - overwrite it
+            pass
+    
+    # Write our lock
+    lock_file.write_text(f"{current_pid}\n{script_name}\n")
+    _current_lock_file = lock_file
+    
+    # Register cleanup on exit
+    atexit.register(release_lock)
+    
+    return True
+
+
+def release_lock():
+    """Release the lock file."""
+    global _current_lock_file
+    
+    try:
+        if _current_lock_file and _current_lock_file.exists():
+            # Only delete if it's our lock
+            lock_data = _current_lock_file.read_text().strip().split('\n')
+            if len(lock_data) >= 1 and int(lock_data[0]) == os.getpid():
+                _current_lock_file.unlink()
+    except:
+        pass  # Ignore errors during cleanup
+    finally:
+        _current_lock_file = None
 
 
 def validate_iso8601_utc(timestamp_str: str) -> str:
@@ -174,7 +264,7 @@ def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[st
         
         if contexts and len(contexts) > 0:
             context = contexts[0]
-            # Check if there's an open page we can reuse
+            # Find first non-closed page to reuse
             for existing_page in context.pages:
                 if not existing_page.is_closed():
                     page = existing_page
