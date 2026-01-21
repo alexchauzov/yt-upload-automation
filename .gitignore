@@ -71,3 +71,6 @@ SESSION_CONTEXT.md
 # Acceptance test environment (created during tests, cleaned up after)
 .acceptance_test_env/
 
+# Manual run scripts (local configuration, not for version control)
+adapters/run_browser_manually.bat
+adapters/run_upload_manually.bat
