@@ -619,8 +619,9 @@ def main():
         help='Path to an existing Chrome profile directory (e.g. "C:\\Users\\...\\AppData\\Local\\Google\\Chrome\\User Data\\Default"). Use this to reuse a trusted logged-in session.',
     )
     parser.add_argument(
-        "--connect-cdp",
-        help='Connect to existing Chrome started with --remote-debugging-port (e.g. "http://127.0.0.1:9222"). Bypasses profile locking and login detection.',
+        "--cdp-port",
+        type=int,
+        help='Port for Chrome remote debugging connection (default: 9222). Only localhost (127.0.0.1) connections are allowed for security. Chrome will be started automatically if not running.',
     )
     parser.add_argument(
         "--upload-timeout",
@@ -655,8 +656,8 @@ def main():
             print("Warning: --publish-at is ignored when privacy is not 'scheduled'")
 
     # Validate mutually exclusive options
-    if args.connect_cdp and args.chrome_profile:
-        print("Error: Cannot use both --connect-cdp and --chrome-profile", file=sys.stderr)
+    if args.cdp_port and args.chrome_profile:
+        print("Error: Cannot use both --cdp-port and --chrome-profile", file=sys.stderr)
         sys.exit(1)
 
     # Print success output
@@ -669,23 +670,20 @@ def main():
     print()
 
     # Mode selection
-    if args.connect_cdp:
+    if args.cdp_port:
+        # CDP mode with custom port
+        cdp_url = f"http://127.0.0.1:{args.cdp_port}"
         print(f"[INFO] Using CDP connection mode")
-        print(f"[INFO] Endpoint: {args.connect_cdp}")
+        print(f"[INFO] Endpoint: {cdp_url} (localhost only)")
         print()
         
-        # Parse port from CDP URL
-        import re
-        port_match = re.search(r':(\d+)', args.connect_cdp)
-        port = int(port_match.group(1)) if port_match else 9222
-        
         # Ensure Chrome is running
-        if not ensure_chrome_running(port=port):
+        if not ensure_chrome_running(port=args.cdp_port):
             print("[ERROR] Failed to start Chrome. Please start it manually.", file=sys.stderr)
             sys.exit(1)
 
         try:
-            browser, page = open_youtube_studio(cdp_url=args.connect_cdp)
+            browser, page = open_youtube_studio(cdp_url=cdp_url)
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
@@ -709,7 +707,7 @@ def main():
         # Default: CDP connection to localhost:9222
         default_cdp_url = "http://127.0.0.1:9222"
         print(f"[INFO] Using CDP connection mode (default)")
-        print(f"[INFO] Endpoint: {default_cdp_url}")
+        print(f"[INFO] Endpoint: {default_cdp_url} (localhost only)")
         print()
         
         # Ensure Chrome is running
@@ -727,7 +725,7 @@ def main():
     print("[INFO] Browser ready. YouTube Studio is open.")
 
     # Track if we're using CDP mode for proper cleanup
-    is_cdp_mode = args.connect_cdp or (not args.chrome_profile)
+    is_cdp_mode = args.cdp_port or (not args.chrome_profile)
 
     try:
         open_upload_dialog(page)
