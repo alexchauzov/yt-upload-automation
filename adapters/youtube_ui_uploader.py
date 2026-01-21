@@ -159,6 +159,234 @@ def open_upload_dialog(page: Page) -> None:
     print("[OK] Upload dialog opened")
 
 
+def upload_video_file(
+    page: Page,
+    file_path: Path,
+    title: str,
+    privacy: str,
+    description: Optional[str] = None,
+    publish_at: Optional[str] = None
+) -> None:
+    """Upload a video file with specified metadata.
+
+    Args:
+        page: Playwright page object with upload dialog open
+        file_path: Path to the video file
+        title: Video title
+        privacy: Privacy setting (private, unlisted, public, scheduled)
+        description: Video description (optional)
+        publish_at: ISO 8601 UTC timestamp for scheduled publishing
+    """
+    print("\n[UPLOAD] Starting video upload...")
+
+    # Step 1: Select the video file
+    print("[1/8] Selecting video file (it might take a while)...")
+    print(f"[INFO] File: {file_path.absolute()}")
+    
+    # Find file input and set the file directly
+    file_input = page.evaluate_handle(
+        """() => document.querySelector('input[type="file"]')"""
+    )
+    file_input.as_element().set_input_files(str(file_path.absolute()))
+    
+    print(f"[INFO] File selected: {file_path.name}")
+
+    # Step 2: Wait for form to be ready (title and description inputs appear)
+    print("[2/8] Waiting for metadata form...")
+    
+    page.wait_for_function(
+        """() => {
+            const titleInput = document.querySelector('ytcp-social-suggestions-textbox#title-textarea');
+            const descInput = document.querySelector('ytcp-social-suggestions-textbox#description-textarea');
+            return titleInput !== null && descInput !== null;
+        }""",
+        timeout=60000
+    )
+    
+    print("[OK] Metadata form ready")
+
+    # Step 3: Fill in the title
+    print("[3/8] Setting video title...")
+    
+    # Clear existing title and type new one
+    page.evaluate(
+        """(title) => {
+            const titleBox = document.querySelector('ytcp-social-suggestions-textbox#title-textarea');
+            const input = titleBox.querySelector('div#textbox');
+            if (input) {
+                input.textContent = title;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }""",
+        title
+    )
+    
+    print(f"[INFO] Title set: {title}")
+
+    # Set description if provided
+    if description:
+        print("[3/8] Setting video description...")
+        page.evaluate(
+            """(desc) => {
+                const descBox = document.querySelector('ytcp-social-suggestions-textbox#description-textarea');
+                const input = descBox ? descBox.querySelector('div#textbox') : null;
+                if (input) {
+                    input.textContent = desc;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }""",
+            description
+        )
+        print(f"[INFO] Description set: {description[:50]}{'...' if len(description) > 50 else ''}")
+
+    # Step 4: Click through wizard steps (Next buttons)
+    print("[4/8] Navigating through upload steps...")
+    
+    # Click "Next" to go to "Video elements" page
+    page.click('ytcp-button#next-button', timeout=10000)
+    page.wait_for_timeout(1000)
+    
+    # Click "Next" to go to "Checks" page
+    page.click('ytcp-button#next-button', timeout=10000)
+    page.wait_for_timeout(1000)
+    
+    # Click "Next" to go to "Visibility" page
+    page.click('ytcp-button#next-button', timeout=10000)
+    page.wait_for_timeout(1000)
+
+    # Step 5: Set privacy/visibility
+    print("[5/8] Setting visibility...")
+    
+    if privacy == "private":
+        page.click('tp-yt-paper-radio-button[name="PRIVATE"]', timeout=10000)
+        print("[INFO] Privacy set: Private")
+        
+    elif privacy == "unlisted":
+        page.click('tp-yt-paper-radio-button[name="UNLISTED"]', timeout=10000)
+        print("[INFO] Privacy set: Unlisted")
+        
+    elif privacy == "public":
+        page.click('tp-yt-paper-radio-button[name="PUBLIC"]', timeout=10000)
+        print("[INFO] Privacy set: Public")
+        
+    elif privacy == "scheduled":
+        # Click Schedule radio button
+        page.click('#second-container-expand-button', timeout=10000)
+        print("[INFO] Privacy set: Scheduled")
+        
+        if publish_at:
+            # Parse the ISO 8601 timestamp
+            dt = datetime.strptime(publish_at, "%Y-%m-%dT%H:%M:%SZ")
+            
+            # Set the date
+            date_str = dt.strftime("%b %d, %Y")  # e.g., "Dec 31, 2026"
+            page.click('#datepicker-trigger span.ytcp-text-dropdown-trigger', timeout=10000)
+            page.fill('#dialog.ytcp-date-picker input.tp-yt-paper-input', date_str)
+            page.press('#dialog.ytcp-date-picker input.tp-yt-paper-input', 'Enter')
+            
+            # Set the time
+            time_str = dt.strftime("%H:%M")  # e.g., "23:23"
+            page.click('#time-of-day-container.ytcp-datetime-picker input.tp-yt-paper-input', timeout=10000)
+            page.fill('#time-of-day-container.ytcp-datetime-picker input.tp-yt-paper-input', time_str)
+
+            print(f"[INFO] Scheduled for: {publish_at}")
+
+    # Wait a moment for settings to apply
+    page.wait_for_timeout(1000)
+
+    # Step 6: Wait for file upload to complete before proceeding
+    print("[6/8] Waiting for file upload to complete...")
+    
+    last_progress = ""
+    while True:
+        progress_info = page.evaluate(
+            """() => {
+                const progress = document.querySelector('ytcp-video-upload-progress');
+                
+                if (!progress) {
+                    return { done: true, percent: '100%', status: 'Upload complete' };
+                }
+                
+                // Try to get status text
+                const statusEl = progress.querySelector('.progress-label');
+                
+                const status = statusEl ? statusEl.textContent.trim() : '';
+                
+                // Check if upload is done (look for completion indicators)
+                const uploadComplete = status.toLowerCase().includes('checks complete. no issues found.');
+                
+                return { done: uploadComplete, status };
+            }"""
+        )
+        
+        # Build progress string
+        current_progress = f"{progress_info.get('status', '')}".strip()
+        
+        # Only print if progress changed
+        if current_progress and current_progress != last_progress:
+            print(f"[UPLOAD] {current_progress}")
+            last_progress = current_progress
+        
+        # Exit when upload is complete
+        if progress_info.get('done'):
+            break
+            
+        page.wait_for_timeout(1000)  # Check every second
+    
+    print("[OK] File upload complete")
+
+    # Step 7: Click save to finalize
+    print("[7/8] Saving video...")
+    # page.click('ytcp-button#done-button', timeout=10000)
+    # page.press('#time-of-day-container.ytcp-datetime-picker input.tp-yt-paper-input', 'Enter')
+    page.press('ytcp-button#done-button', 'Enter')
+
+    # Wait for save confirmation
+    print("[SAVE] Waiting for confirmation...")
+    page.wait_for_function(
+        """() => {
+            const closeButton = document.querySelector('ytcp-button#close-button');
+            const successDialog = document.querySelector('ytcp-uploads-still-processing-dialog, ytcp-video-share-dialog');
+            return closeButton !== null || successDialog !== null;
+        }""",
+        timeout=60000
+    )
+
+    # Step 8: Get video link
+    print("[8/8] Getting video link...")
+    
+    video_link = page.evaluate(
+        """() => {
+            // Try to find the video link in the success dialog
+            const linkInput = document.querySelector('ytcp-video-share-dialog a.ytcp-video-share-dialog');
+            if (linkInput) {
+                return linkInput.href || linkInput.textContent.trim();
+            }
+            
+            // Alternative: look for the link in other places
+            const shareLink = document.querySelector('.share-panel-url, input[readonly][value*="youtu"]');
+            if (shareLink) {
+                return shareLink.value || shareLink.textContent.trim();
+            }
+            
+            // Try to find any youtube video link
+            const anyLink = document.querySelector('a[href*="youtu.be"], a[href*="youtube.com/watch"]');
+            if (anyLink) {
+                return anyLink.href;
+            }
+            
+            return null;
+        }"""
+    )
+    
+    if video_link:
+        print(f"[OK] Video scheduled successfully!")
+        print(f"[LINK] {video_link}")
+    else:
+        print("[OK] Video saved successfully!")
+        print("[WARN] Could not retrieve video link")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="YouTube UI Uploader (Phase 3: Upload dialog)",
@@ -176,6 +404,10 @@ def main():
     )
 
     # Optional arguments
+    parser.add_argument(
+        "--description",
+        help="Video description",
+    )
     parser.add_argument(
         "--publish-at",
         help="Publish timestamp (ISO 8601 UTC: YYYY-MM-DDTHH:MM:SSZ), required if privacy=scheduled",
@@ -270,12 +502,21 @@ def main():
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
 
-    # Wait for user to complete actions in browser
+    # Open upload dialog and upload the video
     print("[INFO] Browser ready. YouTube Studio is open.")
 
     open_upload_dialog(page)
 
-    print("\n[EXIT] Upload dialog opened")
+    upload_video_file(
+        page=page,
+        file_path=file_path,
+        title=args.title,
+        privacy=args.privacy,
+        description=args.description,
+        publish_at=args.publish_at
+    )
+
+    print("\n[EXIT] Video uploaded successfully")
 
 
 if __name__ == "__main__":
