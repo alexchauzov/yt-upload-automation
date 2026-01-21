@@ -2,13 +2,103 @@
 """YouTube UI Uploader - Opens YouTube Studio upload dialog (Phase 3)."""
 
 import argparse
+import atexit
+import os
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
+
+import psutil
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
+
+
+# Lock file directory (in temp directory)
+LOCK_DIR = Path(os.environ.get('TEMP', os.environ.get('TMPDIR', '/tmp')))
+
+# Global variable to track current lock file (for cleanup)
+_current_lock_file: Optional[Path] = None
+
+
+def get_lock_file(port: int) -> Path:
+    """Get lock file path for specific CDP port.
+    
+    Different ports get different lock files, allowing parallel execution
+    with different browsers.
+    """
+    return LOCK_DIR / f'yt_uploader_port{port}.lock'
+
+
+def acquire_lock(port: int) -> bool:
+    """Acquire exclusive lock to prevent multiple instances on same port.
+    
+    Uses PID file with process verification to ensure the lock is valid.
+    If lock file exists but process is dead or not our script - ignores stale lock.
+    
+    Args:
+        port: CDP port number (used to create port-specific lock file)
+    
+    Returns:
+        True if lock acquired, False if another instance is running on this port
+    """
+    global _current_lock_file
+    
+    lock_file = get_lock_file(port)
+    current_pid = os.getpid()
+    script_name = 'youtube_ui_uploader.py'
+    
+    # Check if lock file exists
+    if lock_file.exists():
+        try:
+            lock_data = lock_file.read_text().strip().split('\n')
+            if len(lock_data) >= 2:
+                locked_pid = int(lock_data[0])
+                locked_script = lock_data[1]
+                
+                # Check if process with this PID exists
+                if psutil.pid_exists(locked_pid):
+                    try:
+                        proc = psutil.Process(locked_pid)
+                        cmdline = ' '.join(proc.cmdline())
+                        
+                        # Verify it's actually our script
+                        if script_name in cmdline and locked_script == script_name:
+                            print(f"[ERROR] Another instance is already running on port {port} (PID: {locked_pid})", file=sys.stderr)
+                            return False
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        # Process died or we can't access it - stale lock
+                        pass
+                # PID doesn't exist - stale lock, we can overwrite
+        except (ValueError, IndexError):
+            # Corrupted lock file - overwrite it
+            pass
+    
+    # Write our lock
+    lock_file.write_text(f"{current_pid}\n{script_name}\n")
+    _current_lock_file = lock_file
+    
+    # Register cleanup on exit
+    atexit.register(release_lock)
+    
+    return True
+
+
+def release_lock():
+    """Release the lock file."""
+    global _current_lock_file
+    
+    try:
+        if _current_lock_file and _current_lock_file.exists():
+            # Only delete if it's our lock
+            lock_data = _current_lock_file.read_text().strip().split('\n')
+            if len(lock_data) >= 1 and int(lock_data[0]) == os.getpid():
+                _current_lock_file.unlink()
+    except:
+        pass  # Ignore errors during cleanup
+    finally:
+        _current_lock_file = None
 
 
 def validate_iso8601_utc(timestamp_str: str) -> str:
@@ -56,15 +146,26 @@ def ensure_chrome_running(port: int = 9222, user_data_dir: Optional[str] = None)
     
     # Default user data directory for YouTube automation
     if not user_data_dir:
-        import os
-        user_data_dir = os.path.join(os.environ.get('USERPROFILE', ''), 
-                                      'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'YT-Automation')
+        if sys.platform == 'win32':
+            user_data_dir = os.path.join(os.environ.get('USERPROFILE', ''), 
+                                          'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'YT-Automation')
+        else:
+            user_data_dir = os.path.join(os.environ.get('HOME', ''), '.config', 'google-chrome-yt-automation')
     
-    # Try common Chrome locations on Windows
-    chrome_paths = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    ]
+    # Try common Chrome locations (cross-platform)
+    if sys.platform == 'win32':
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+    else:
+        chrome_paths = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/snap/bin/chromium",
+        ]
     
     chrome_exe = None
     for path in chrome_paths:
@@ -166,11 +267,17 @@ def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[st
             # Check if there's an open page we can reuse
             for existing_page in context.pages:
                 if not existing_page.is_closed():
-                    page = existing_page
-                    print("[INFO] Reusing existing open page")
-                    break
+                    # Check if page is responsive by evaluating simple expression
+                    try:
+                        existing_page.evaluate("() => true", timeout=2000)
+                        page = existing_page
+                        print("[INFO] Reusing existing open page")
+                        break
+                    except:
+                        print("[INFO] Found page but it's not responsive, skipping...")
+                        continue
             
-            # No open pages found, create new
+            # No open/responsive pages found, create new
             if not page:
                 page = context.new_page()
                 print("[INFO] Created new page in existing context")
@@ -178,6 +285,9 @@ def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[st
             # No contexts yet, create new page in default context
             page = browser.new_page()
             print("[INFO] Created new page in new context")
+        
+        # Small delay to ensure CDP connection is stable
+        time.sleep(0.5)
 
     # Mode 2: Launch with profile (existing behavior)
     else:
@@ -539,30 +649,28 @@ def upload_video_file(
 
     # Step 7: Click save to finalize
     print("[7/8] Saving video...")
-    # page.click('ytcp-button#done-button', timeout=10000)
-    # page.press('#time-of-day-container.ytcp-datetime-picker input.tp-yt-paper-input', 'Enter')
-    page.press('ytcp-button#done-button', 'Enter')
+    page.click('ytcp-button#done-button', timeout=10000)
 
-    # Wait for save confirmation
-    print("[SAVE] Waiting for confirmation...")
+    # Wait for "Video Scheduled" confirmation dialog
+    print("[SAVE] Waiting for confirmation dialog...")
     page.wait_for_function(
         """() => {
-            const closeButton = document.querySelector('ytcp-button#close-button');
-            const successDialog = document.querySelector('ytcp-uploads-still-processing-dialog, ytcp-video-share-dialog');
-            return closeButton !== null || successDialog !== null;
+            const dialogTitle = document.querySelector('tp-yt-paper-dialog#dialog h1#dialog-title');
+            return dialogTitle && dialogTitle.innerText.includes('Video scheduled');
         }""",
         timeout=60000
     )
+    print("[OK] Video scheduled confirmation received")
 
-    # Step 8: Get video link
+    # Step 8: Get video link and close dialog
     print("[8/8] Getting video link...")
     
     video_link = page.evaluate(
         """() => {
             // Try to find the video link in the success dialog
-            const linkInput = document.querySelector('ytcp-video-share-dialog a.ytcp-video-share-dialog');
-            if (linkInput) {
-                return linkInput.href || linkInput.textContent.trim();
+            const linkInput = document.querySelector('tp-yt-paper-dialog#dialog a');
+            if (linkInput && linkInput.href) {
+                return linkInput.href;
             }
             
             // Alternative: look for the link in other places
@@ -587,6 +695,12 @@ def upload_video_file(
     else:
         print("[OK] Video saved successfully!")
         print("[WARN] Could not retrieve video link")
+    
+    # Close the confirmation dialog
+    print("[CLEANUP] Closing confirmation dialog...")
+    page.click('tp-yt-paper-dialog#dialog ytcp-button#close-button', timeout=10000)
+    page.wait_for_timeout(1000)  # Wait for dialog to fully close
+    print("[OK] Dialog closed, page ready for reuse")
 
 
 def main():
@@ -629,8 +743,22 @@ def main():
         default=600,
         help="Timeout in seconds for upload stall detection (default: 600). If upload status doesn't change for this duration, script exits with error. Increase for large files or slow connections.",
     )
+    parser.add_argument(
+        "--close-browser-on-completion",
+        action="store_true",
+        help="Close browser after upload completes (default: keep browser open for result verification)",
+    )
 
     args = parser.parse_args()
+    
+    # Determine CDP port (for lock and browser)
+    cdp_port = args.cdp_port if args.cdp_port else 9222
+    
+    # Acquire lock to prevent multiple instances on same port
+    # (skip lock for chrome_profile mode - different mechanism)
+    if not args.chrome_profile:
+        if not acquire_lock(cdp_port):
+            sys.exit(1)
 
     # Validate file exists
     file_path = Path(args.file)
@@ -724,9 +852,6 @@ def main():
     # Open upload dialog and upload the video
     print("[INFO] Browser ready. YouTube Studio is open.")
 
-    # Track if we're using CDP mode for proper cleanup
-    is_cdp_mode = args.cdp_port or (not args.chrome_profile)
-
     try:
         open_upload_dialog(page)
 
@@ -743,20 +868,15 @@ def main():
         print("\n[EXIT] Video uploaded successfully")
     
     finally:
-        # Cleanup: close browser connection properly
-        try:
-            if is_cdp_mode:
-                # CDP mode: close only the page, keep browser running
-                if page and not page.is_closed():
-                    page.close()
-                    print("[INFO] Page closed, browser still running")
-            else:
-                # Profile mode: close the browser context
+        # Close browser only if explicitly requested
+        if args.close_browser_on_completion:
+            try:
                 browser.close()
                 print("[INFO] Browser closed")
-        except Exception as e:
-            # Ignore cleanup errors (browser/page may already be closed)
-            pass
+            except:
+                pass
+        else:
+            print("[INFO] Browser left open for result verification")
 
 
 if __name__ == "__main__":

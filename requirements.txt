@@ -14,3 +14,6 @@ pytest-mock>=3.11.1
 
 # Browser Automation
 playwright>=1.40.0
+
+# Process management (for cross-platform lock mechanism)
+psutil>=5.9.0
