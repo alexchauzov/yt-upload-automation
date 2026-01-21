@@ -264,20 +264,14 @@ def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[st
         
         if contexts and len(contexts) > 0:
             context = contexts[0]
-            # Check if there's an open page we can reuse
+            # Find first non-closed page to reuse
             for existing_page in context.pages:
                 if not existing_page.is_closed():
-                    # Check if page is responsive by evaluating simple expression
-                    try:
-                        existing_page.evaluate("() => true", timeout=2000)
-                        page = existing_page
-                        print("[INFO] Reusing existing open page")
-                        break
-                    except:
-                        print("[INFO] Found page but it's not responsive, skipping...")
-                        continue
+                    page = existing_page
+                    print("[INFO] Reusing existing open page")
+                    break
             
-            # No open/responsive pages found, create new
+            # No open pages found, create new
             if not page:
                 page = context.new_page()
                 print("[INFO] Created new page in existing context")
@@ -285,9 +279,6 @@ def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[st
             # No contexts yet, create new page in default context
             page = browser.new_page()
             print("[INFO] Created new page in new context")
-        
-        # Small delay to ensure CDP connection is stable
-        time.sleep(0.5)
 
     # Mode 2: Launch with profile (existing behavior)
     else:
