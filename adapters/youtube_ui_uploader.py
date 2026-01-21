@@ -2,7 +2,9 @@
 """YouTube UI Uploader - Opens YouTube Studio upload dialog (Phase 3)."""
 
 import argparse
+import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
@@ -26,6 +28,100 @@ def validate_iso8601_utc(timestamp_str: str) -> str:
         return timestamp_str
     except ValueError:
         raise ValueError(f"--publish-at must be in ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SSZ), got: {timestamp_str}")
+
+
+def ensure_chrome_running(port: int = 9222, user_data_dir: Optional[str] = None) -> bool:
+    """Ensure Chrome is running with remote debugging enabled.
+
+    Args:
+        port: Remote debugging port (default: 9222)
+        user_data_dir: Chrome user data directory (optional)
+
+    Returns:
+        True if Chrome is running or was successfully started
+    """
+    import urllib.request
+    import urllib.error
+    
+    # Check if Chrome is already running with remote debugging
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=2)
+        print(f"[INFO] Chrome already running with remote debugging on port {port}")
+        return True
+    except (urllib.error.URLError, ConnectionRefusedError, TimeoutError):
+        pass
+    
+    # Chrome not running, try to start it
+    print(f"[INFO] Starting Chrome with remote debugging on port {port}...")
+    
+    # Default user data directory for YouTube automation
+    if not user_data_dir:
+        import os
+        user_data_dir = os.path.join(os.environ.get('USERPROFILE', ''), 
+                                      'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'YT-Automation')
+    
+    # Try common Chrome locations on Windows
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    
+    chrome_exe = None
+    for path in chrome_paths:
+        if Path(path).exists():
+            chrome_exe = path
+            break
+    
+    if not chrome_exe:
+        print("[ERROR] Chrome executable not found. Please install Chrome or specify path.", file=sys.stderr)
+        return False
+    
+    # Start Chrome with remote debugging
+    try:
+        # Start Chrome in detached mode so it keeps running after script exits
+        if sys.platform == 'win32':
+            # Use shell=False and proper creationflags for Windows
+            DETACHED_PROCESS = 0x00000008
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            
+            subprocess.Popen(
+                [chrome_exe, 
+                 f"--remote-debugging-port={port}",
+                 f"--user-data-dir={user_data_dir}"],
+                creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True
+            )
+        else:
+            subprocess.Popen(
+                [chrome_exe, 
+                 f"--remote-debugging-port={port}",
+                 f"--user-data-dir={user_data_dir}"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+        
+        # Wait for Chrome to start (max 10 seconds)
+        print("[INFO] Waiting for Chrome to start...")
+        for i in range(20):
+            time.sleep(0.5)
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1)
+                print("[OK] Chrome started successfully")
+                return True
+            except (urllib.error.URLError, ConnectionRefusedError, TimeoutError):
+                continue
+        
+        print("[ERROR] Chrome started but remote debugging not responding", file=sys.stderr)
+        return False
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to start Chrome: {e}", file=sys.stderr)
+        return False
 
 
 def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[str] = None) -> tuple[Union[Browser, BrowserContext], Page]:
@@ -63,12 +159,19 @@ def open_youtube_studio(profile_dir: Optional[Path] = None, cdp_url: Optional[st
 
         # Get page from existing context or create new
         contexts = browser.contexts
+        page = None
+        
         if contexts and len(contexts) > 0:
             context = contexts[0]
-            if len(context.pages) > 0:
-                page = context.pages[0]
-                print("[INFO] Reusing existing page")
-            else:
+            # Check if there's an open page we can reuse
+            for existing_page in context.pages:
+                if not existing_page.is_closed():
+                    page = existing_page
+                    print("[INFO] Reusing existing open page")
+                    break
+            
+            # No open pages found, create new
+            if not page:
                 page = context.new_page()
                 print("[INFO] Created new page in existing context")
         else:
@@ -176,9 +279,9 @@ def check_upload_status(page: Page) -> dict:
         """() => {
             const progress = document.querySelector('ytcp-video-upload-progress');
             
-            // No progress element - assume complete
+            // No progress element - this is suspicious, fail safe
             if (!progress) {
-                return { done: true, success: true, status: 'Upload complete', error: null };
+                return { done: true, success: false, status: 'Progress element not found', error: 'Upload progress element disappeared unexpectedly - possible page error' };
             }
             
             // Get status text
@@ -187,7 +290,7 @@ def check_upload_status(page: Page) -> dict:
             const statusLower = status.toLowerCase();
             
             // Check for success indicators
-            if (statusLower.includes('checks complete') || statusLower.includes('no issues found')) {
+            if (statusLower.includes('checks complete. no issues found')) {
                 return { done: true, success: true, status: status, error: null };
             }
             
@@ -199,15 +302,44 @@ def check_upload_status(page: Page) -> dict:
                 }
             }
             
+            // Helper function to check if element is actually visible
+            function isElementVisible(element) {
+                if (!element) return false;
+                
+                // Check if element is hidden via display or visibility
+                const style = window.getComputedStyle(element);
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                    return false;
+                }
+                
+                // Check if element has offsetParent (null means hidden)
+                // Note: this doesn't work for position: fixed, so we check style first
+                if (element.offsetParent === null && style.position !== 'fixed') {
+                    return false;
+                }
+                
+                // Check if any parent is hidden
+                let parent = element.parentElement;
+                while (parent) {
+                    const parentStyle = window.getComputedStyle(parent);
+                    if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+                        return false;
+                    }
+                    parent = parent.parentElement;
+                }
+                
+                return true;
+            }
+            
             // Check for retry button (indicates error state)
             const retryButton = document.querySelector('ytcp-button#retry-button, button[aria-label*="Retry"], .retry-button');
-            if (retryButton) {
+            if (isElementVisible(retryButton)) {
                 return { done: true, success: false, status: status, error: 'Upload failed - retry button appeared' };
             }
             
             // Check for error dialogs or messages
             const errorDialog = document.querySelector('.error-message, .ytcp-error-message, [class*="error"]');
-            if (errorDialog && errorDialog.textContent.trim()) {
+            if (isElementVisible(errorDialog) && errorDialog.textContent.trim()) {
                 const errorText = errorDialog.textContent.trim();
                 if (errorText.toLowerCase().includes('error') || errorText.toLowerCase().includes('failed')) {
                     return { done: true, success: false, status: status, error: errorText };
@@ -306,14 +438,17 @@ def upload_video_file(
     print("[4/8] Navigating through upload steps...")
     
     # Click "Next" to go to "Video elements" page
+    print('[INFO] Click "Next" to go to "Video elements" page...')
     page.click('ytcp-button#next-button', timeout=10000)
     page.wait_for_timeout(1000)
     
     # Click "Next" to go to "Checks" page
+    print('[INFO] Click "Next" to go to "Checks" page...')
     page.click('ytcp-button#next-button', timeout=10000)
     page.wait_for_timeout(1000)
     
     # Click "Next" to go to "Visibility" page
+    print('[INFO] Click "Next" to go to "Visibility" page...')
     page.click('ytcp-button#next-button', timeout=10000)
     page.wait_for_timeout(1000)
 
@@ -349,8 +484,13 @@ def upload_video_file(
             
             # Set the time
             time_str = dt.strftime("%H:%M")  # e.g., "23:23"
-            page.click('#time-of-day-container.ytcp-datetime-picker input.tp-yt-paper-input', timeout=10000)
             page.fill('#time-of-day-container.ytcp-datetime-picker input.tp-yt-paper-input', time_str)
+            
+            # Trigger blur event to apply the time value
+            page.evaluate("""() => {
+                const input = document.querySelector('#time-of-day-container.ytcp-datetime-picker input.tp-yt-paper-input');
+                if (input) input.blur();
+            }""")
 
             print(f"[INFO] Scheduled for: {publish_at}")
 
@@ -532,8 +672,17 @@ def main():
     if args.connect_cdp:
         print(f"[INFO] Using CDP connection mode")
         print(f"[INFO] Endpoint: {args.connect_cdp}")
-        print("[INFO] NOTE: Chrome must be running with --remote-debugging-port")
         print()
+        
+        # Parse port from CDP URL
+        import re
+        port_match = re.search(r':(\d+)', args.connect_cdp)
+        port = int(port_match.group(1)) if port_match else 9222
+        
+        # Ensure Chrome is running
+        if not ensure_chrome_running(port=port):
+            print("[ERROR] Failed to start Chrome. Please start it manually.", file=sys.stderr)
+            sys.exit(1)
 
         try:
             browser, page = open_youtube_studio(cdp_url=args.connect_cdp)
@@ -561,8 +710,12 @@ def main():
         default_cdp_url = "http://127.0.0.1:9222"
         print(f"[INFO] Using CDP connection mode (default)")
         print(f"[INFO] Endpoint: {default_cdp_url}")
-        print("[INFO] NOTE: Chrome must be running with --remote-debugging-port=9222")
         print()
+        
+        # Ensure Chrome is running
+        if not ensure_chrome_running(port=9222):
+            print("[ERROR] Failed to start Chrome. Please start it manually.", file=sys.stderr)
+            sys.exit(1)
 
         try:
             browser, page = open_youtube_studio(cdp_url=default_cdp_url)
@@ -573,19 +726,39 @@ def main():
     # Open upload dialog and upload the video
     print("[INFO] Browser ready. YouTube Studio is open.")
 
-    open_upload_dialog(page)
+    # Track if we're using CDP mode for proper cleanup
+    is_cdp_mode = args.connect_cdp or (not args.chrome_profile)
 
-    upload_video_file(
-        page=page,
-        file_path=file_path,
-        title=args.title,
-        privacy=args.privacy,
-        description=args.description,
-        publish_at=args.publish_at,
-        upload_timeout=args.upload_timeout
-    )
+    try:
+        open_upload_dialog(page)
 
-    print("\n[EXIT] Video uploaded successfully")
+        upload_video_file(
+            page=page,
+            file_path=file_path,
+            title=args.title,
+            privacy=args.privacy,
+            description=args.description,
+            publish_at=args.publish_at,
+            upload_timeout=args.upload_timeout
+        )
+
+        print("\n[EXIT] Video uploaded successfully")
+    
+    finally:
+        # Cleanup: close browser connection properly
+        try:
+            if is_cdp_mode:
+                # CDP mode: close only the page, keep browser running
+                if page and not page.is_closed():
+                    page.close()
+                    print("[INFO] Page closed, browser still running")
+            else:
+                # Profile mode: close the browser context
+                browser.close()
+                print("[INFO] Browser closed")
+        except Exception as e:
+            # Ignore cleanup errors (browser/page may already be closed)
+            pass
 
 
 if __name__ == "__main__":
