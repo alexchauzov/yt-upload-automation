@@ -159,13 +159,75 @@ def open_upload_dialog(page: Page) -> None:
     print("[OK] Upload dialog opened")
 
 
+def check_upload_status(page: Page) -> dict:
+    """Check the current upload/processing status.
+
+    Args:
+        page: Playwright page object
+
+    Returns:
+        Dict with keys:
+            - done: bool - whether process is complete (success or error)
+            - success: bool - whether it completed successfully
+            - status: str - current status text
+            - error: str or None - error message if failed
+    """
+    return page.evaluate(
+        """() => {
+            const progress = document.querySelector('ytcp-video-upload-progress');
+            
+            // No progress element - assume complete
+            if (!progress) {
+                return { done: true, success: true, status: 'Upload complete', error: null };
+            }
+            
+            // Get status text
+            const statusEl = progress.querySelector('.progress-label');
+            const status = statusEl ? statusEl.textContent.trim() : '';
+            const statusLower = status.toLowerCase();
+            
+            // Check for success indicators
+            if (statusLower.includes('checks complete') || statusLower.includes('no issues found')) {
+                return { done: true, success: true, status: status, error: null };
+            }
+            
+            // Check for error indicators
+            const errorKeywords = ['failed', 'error', 'problem', 'issue found', 'can\\'t upload', 'unable to'];
+            for (const keyword of errorKeywords) {
+                if (statusLower.includes(keyword)) {
+                    return { done: true, success: false, status: status, error: status };
+                }
+            }
+            
+            // Check for retry button (indicates error state)
+            const retryButton = document.querySelector('ytcp-button#retry-button, button[aria-label*="Retry"], .retry-button');
+            if (retryButton) {
+                return { done: true, success: false, status: status, error: 'Upload failed - retry button appeared' };
+            }
+            
+            // Check for error dialogs or messages
+            const errorDialog = document.querySelector('.error-message, .ytcp-error-message, [class*="error"]');
+            if (errorDialog && errorDialog.textContent.trim()) {
+                const errorText = errorDialog.textContent.trim();
+                if (errorText.toLowerCase().includes('error') || errorText.toLowerCase().includes('failed')) {
+                    return { done: true, success: false, status: status, error: errorText };
+                }
+            }
+            
+            // Still in progress
+            return { done: false, success: false, status: status, error: null };
+        }"""
+    )
+
+
 def upload_video_file(
     page: Page,
     file_path: Path,
     title: str,
     privacy: str,
     description: Optional[str] = None,
-    publish_at: Optional[str] = None
+    publish_at: Optional[str] = None,
+    upload_timeout: int = 600
 ) -> None:
     """Upload a video file with specified metadata.
 
@@ -176,6 +238,7 @@ def upload_video_file(
         privacy: Privacy setting (private, unlisted, public, scheduled)
         description: Video description (optional)
         publish_at: ISO 8601 UTC timestamp for scheduled publishing
+        upload_timeout: Timeout in seconds for upload stall detection (default 600)
     """
     print("\n[UPLOAD] Starting video upload...")
 
@@ -298,42 +361,41 @@ def upload_video_file(
     print("[6/8] Waiting for file upload to complete...")
     
     last_progress = ""
+    stall_counter = 0  # Count seconds without progress change
+    
     while True:
-        progress_info = page.evaluate(
-            """() => {
-                const progress = document.querySelector('ytcp-video-upload-progress');
-                
-                if (!progress) {
-                    return { done: true, percent: '100%', status: 'Upload complete' };
-                }
-                
-                // Try to get status text
-                const statusEl = progress.querySelector('.progress-label');
-                
-                const status = statusEl ? statusEl.textContent.trim() : '';
-                
-                // Check if upload is done (look for completion indicators)
-                const uploadComplete = status.toLowerCase().includes('checks complete. no issues found.');
-                
-                return { done: uploadComplete, status };
-            }"""
-        )
+        progress_info = check_upload_status(page)
         
         # Build progress string
         current_progress = f"{progress_info.get('status', '')}".strip()
         
-        # Only print if progress changed
+        # Track progress changes for stall detection
         if current_progress and current_progress != last_progress:
             print(f"[UPLOAD] {current_progress}")
             last_progress = current_progress
+            stall_counter = 0  # Reset stall counter on progress change
+        else:
+            stall_counter += 1
+            
+            # Check for stall timeout
+            if stall_counter >= upload_timeout:
+                stall_minutes = upload_timeout // 60
+                print(f"[ERROR] Upload stalled - status unchanged for {stall_minutes} minutes", file=sys.stderr)
+                print(f"[ERROR] Last status: {last_progress or 'unknown'}", file=sys.stderr)
+                print("[HINT] For large files or slow connections, increase --upload-timeout", file=sys.stderr)
+                sys.exit(1)
         
-        # Exit when upload is complete
+        # Exit when upload is complete (success or error)
         if progress_info.get('done'):
+            if progress_info.get('success'):
+                print("[OK] File upload complete")
+            else:
+                error_msg = progress_info.get('error') or 'Unknown error'
+                print(f"[ERROR] Upload failed: {error_msg}", file=sys.stderr)
+                sys.exit(1)
             break
             
         page.wait_for_timeout(1000)  # Check every second
-    
-    print("[OK] File upload complete")
 
     # Step 7: Click save to finalize
     print("[7/8] Saving video...")
@@ -419,6 +481,12 @@ def main():
     parser.add_argument(
         "--connect-cdp",
         help='Connect to existing Chrome started with --remote-debugging-port (e.g. "http://127.0.0.1:9222"). Bypasses profile locking and login detection.',
+    )
+    parser.add_argument(
+        "--upload-timeout",
+        type=int,
+        default=600,
+        help="Timeout in seconds for upload stall detection (default: 600). If upload status doesn't change for this duration, script exits with error. Increase for large files or slow connections.",
     )
 
     args = parser.parse_args()
@@ -513,7 +581,8 @@ def main():
         title=args.title,
         privacy=args.privacy,
         description=args.description,
-        publish_at=args.publish_at
+        publish_at=args.publish_at,
+        upload_timeout=args.upload_timeout
     )
 
     print("\n[EXIT] Video uploaded successfully")
