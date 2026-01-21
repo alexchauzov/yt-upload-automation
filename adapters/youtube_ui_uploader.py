@@ -477,7 +477,8 @@ def upload_video_file(
 
     # Step 1: Select the video file
     print("[1/8] Selecting video file (it might take a while)...")
-    print(f"[INFO] File: {file_path.absolute()}")
+    # resolve() normalizes the path and removes ".." components
+    print(f"[INFO] File: {file_path.resolve()}")
     
     # Find file input and set the file directly
     cdp = page.context.new_cdp_session(page)
@@ -485,54 +486,27 @@ def upload_video_file(
     # Use depth=-1 and pierce=True to traverse Shadow DOM
     doc = cdp.send("DOM.getDocument", {"depth": -1, "pierce": True})
     root_id = doc["root"]["nodeId"]
-    print(f"[INFO] Root ID: {root_id}")
 
     res = cdp.send("DOM.querySelector", {
         "nodeId": root_id,
         "selector": 'input[type="file"]'
     })
     node_id = res.get("nodeId")
-    print(f"[INFO] Node ID: {node_id}")
     if not node_id:
         raise RuntimeError("input[type=file] not found")
 
     # Get backendNodeId - this is critical for setFileInputFiles to work properly
     node_info = cdp.send("DOM.describeNode", {"nodeId": node_id})
     backend_node_id = node_info["node"]["backendNodeId"]
-    print(f"[INFO] Backend Node ID: {backend_node_id}")
 
-    # Use forward slashes for Chromium compatibility on Windows
-    file_path_str = str(file_path.absolute()).replace("\\", "/")
+    # Use resolve() to normalize path (removes "..") and forward slashes for Chromium
+    file_path_str = str(file_path.resolve()).replace("\\", "/")
     print(f"[INFO] File path for CDP: {file_path_str}")
 
     cdp.send("DOM.setFileInputFiles", {
         "backendNodeId": backend_node_id,
         "files": [file_path_str],
     })
-    
-    # Debug: Check what the browser received
-    page.evaluate(
-        """(debugInfo) => {
-            const fileInput = document.querySelector('input[type="file"]');
-            console.error('=== FILE INPUT DEBUG ===');
-            console.error('Path sent to CDP:', debugInfo.filePath);
-            console.error('Backend Node ID:', debugInfo.backendNodeId);
-            console.error('File input element:', fileInput);
-            console.error('File input files:', fileInput ? fileInput.files : 'N/A');
-            console.error('File input files length:', fileInput ? fileInput.files.length : 'N/A');
-            if (fileInput && fileInput.files.length > 0) {
-                const f = fileInput.files[0];
-                console.error('File name:', f.name);
-                console.error('File size:', f.size);
-                console.error('File type:', f.type);
-                console.error('File lastModified:', f.lastModified);
-            } else {
-                console.error('No files in input!');
-            }
-            console.error('=== END DEBUG ===');
-        }""",
-        {"filePath": file_path_str, "backendNodeId": backend_node_id}
-    )
     
     print(f"[INFO] File selected: {file_path.name}")
 
