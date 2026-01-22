@@ -473,6 +473,13 @@ def upload_video_file(
         publish_at: ISO 8601 UTC timestamp for scheduled publishing
         upload_timeout: Timeout in seconds for upload stall detection (default 600)
     """
+    # Only scheduled uploads are currently implemented
+    if privacy != "scheduled":
+        raise NotImplementedError(
+            f"Privacy mode '{privacy}' is not implemented. "
+            f"Currently only 'scheduled' mode is supported."
+        )
+    
     print("\n[UPLOAD] Starting video upload...")
 
     # Step 1: Select the video file
